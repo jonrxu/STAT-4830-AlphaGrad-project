@@ -2,5 +2,5 @@
 docs/figures/*
 !docs/figures/*.png
 !docs/figures/*.tex
-
-local/
+api_key.txt
+local/api_key.txt

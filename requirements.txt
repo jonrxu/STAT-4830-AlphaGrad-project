@@ -1,0 +1,19 @@
+# GEPA Circle Packing Optimization Requirements
+
+# Core optimization framework
+gepa>=0.1.0
+litellm>=1.80.0
+
+# OpenAI API
+openai>=2.0.0
+
+# Scientific computing
+numpy>=1.24.0
+scipy>=1.10.0
+
+# Visualization
+matplotlib>=3.7.0
+
+# Jupyter
+jupyter>=1.0.0
+ipykernel>=6.20.0

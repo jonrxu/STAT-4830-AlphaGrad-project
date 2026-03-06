@@ -9,6 +9,9 @@ conda activate airbench_gepa
 pip install -r requirements.txt
 ```
 
+The local GEPA runner auto-loads `.env` from the repo root if present. This is
+used for local reflection-model auth such as `OPENAI_API_KEY`.
+
 ## Modal smoke test
 
 This runs the committed AirBench seed script once on a Modal A100-40GB and caches CIFAR-10 in a Modal Volume.
@@ -57,4 +60,5 @@ python scripts/airbench_gepa/run_gepa_airbench94.py \
 - The first version uses a Modal Function for repeated evaluation. Modal Sandboxes are a natural next step for tool-calling or agent-style live iteration.
 - The evaluator uses lexicographic scoring: meet the accuracy target first, then minimize runtime.
 - Each run writes `eval_log.jsonl`, `progress_curve.csv`, `milestones.json`, and `summary.json` so you can track both final quality and time-to-solution.
+- Candidate snapshots are written under each run's `candidates/` directory, and repeated seed re-checks are labeled separately from true GEPA mutations.
 - Modal commands are intended to be run from your own terminal so you can inspect the live logs directly.

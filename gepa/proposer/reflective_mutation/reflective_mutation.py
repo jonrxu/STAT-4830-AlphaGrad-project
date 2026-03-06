@@ -135,6 +135,35 @@ class ReflectiveMutationProposer(ProposeNewCandidate[DataId]):
             )["new_instruction"]
         return new_texts
 
+    @staticmethod
+    def _extract_returned_candidate(
+        outputs: Sequence[Any],
+        fallback_candidate: dict[str, str],
+    ) -> dict[str, str]:
+        """Use adapter-returned candidate if every output agrees on the same full candidate.
+
+        Some adapters, such as ``OptimizeAnythingAdapter`` with refinement enabled,
+        package outputs as ``(score, best_candidate, side_info)``.  When all
+        evaluated outputs agree on the same returned candidate, promote that
+        candidate into GEPA's state. Otherwise, keep the originally proposed one.
+        """
+        extracted: list[dict[str, str]] = []
+        for output in outputs:
+            if not (isinstance(output, tuple) and len(output) >= 2 and isinstance(output[1], dict)):
+                return fallback_candidate
+            candidate = output[1]
+            if not all(isinstance(k, str) and isinstance(v, str) for k, v in candidate.items()):
+                return fallback_candidate
+            extracted.append(dict(candidate))
+
+        if not extracted:
+            return fallback_candidate
+
+        first = extracted[0]
+        if all(candidate == first for candidate in extracted[1:]):
+            return first
+        return fallback_candidate
+
     def propose(self, state: GEPAState) -> CandidateProposal | None:
         i = state.i + 1
 
@@ -351,6 +380,11 @@ class ReflectiveMutationProposer(ProposeNewCandidate[DataId]):
         )
         new_scores = [scores_by_id[eid] for eid in subsample_ids]
         outputs = [outputs_by_id[eid] for eid in subsample_ids]
+        promoted_candidate = self._extract_returned_candidate(outputs, new_candidate)
+        if promoted_candidate != new_candidate:
+            self.logger.log(
+                f"Iteration {i}: Adapter returned a refined candidate; promoting refined program into candidate pool."
+            )
 
         notify_callbacks(
             self.callbacks,
@@ -377,7 +411,7 @@ class ReflectiveMutationProposer(ProposeNewCandidate[DataId]):
         )
 
         return CandidateProposal(
-            candidate=new_candidate,
+            candidate=promoted_candidate,
             parent_program_ids=[curr_prog_id],
             subsample_indices=subsample_ids,
             subsample_scores_before=eval_curr.scores,

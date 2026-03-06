@@ -13,7 +13,13 @@ def _normalize_accuracy_value(value: float) -> float:
 
 
 class RemoteRunner(Protocol):
-    def remote(self, solver_code: str, script_args: list[str], timeout_seconds: int) -> dict[str, Any]:
+    def remote(
+        self,
+        solver_code: str,
+        script_args: list[str],
+        timeout_seconds: int,
+        print_subprocess_logs: bool = False,
+    ) -> dict[str, Any]:
         """Run a candidate remotely and return a structured result."""
 
 
@@ -24,6 +30,9 @@ class AirbenchEvalConfig:
     warmup_trials: int = 1
     timeout_seconds: int = 60 * 15
     remote_data_dir: str = "/vol/cifar10"
+    preflight: bool = True
+    candidate_verbose: bool = False
+    stream_subprocess_logs: bool = False
 
     def normalized_target_accuracy(self) -> float:
         return _normalize_accuracy_value(float(self.target_accuracy))
@@ -61,7 +70,7 @@ class AirbenchEvalResult:
 
 
 def build_script_args(config: AirbenchEvalConfig) -> list[str]:
-    return [
+    args = [
         "--data-dir",
         config.remote_data_dir,
         "--trials",
@@ -72,6 +81,11 @@ def build_script_args(config: AirbenchEvalConfig) -> list[str]:
         str(config.normalized_target_accuracy()),
         "--json-only",
     ]
+    if config.candidate_verbose:
+        args.append("--verbose")
+    if config.preflight:
+        args.append("--preflight")
+    return args
 
 
 def _build_result(
@@ -145,6 +159,7 @@ def evaluate_solver_code(
             solver_code=solver_code,
             script_args=build_script_args(config),
             timeout_seconds=config.timeout_seconds,
+            print_subprocess_logs=config.stream_subprocess_logs,
         )
     except Exception as exc:
         elapsed = time.time() - started_at

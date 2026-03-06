@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import selectors
 import subprocess
 import sys
 import tempfile
@@ -56,6 +57,63 @@ def _extract_last_json(stdout: str) -> dict[str, Any]:
     return payload
 
 
+def _run_subprocess(
+    *,
+    argv: list[str],
+    cwd: str,
+    env: dict[str, str],
+    timeout_seconds: int,
+    stream_output: bool,
+) -> tuple[int | None, str, str, bool]:
+    stdout_parts: list[str] = []
+    stderr_parts: list[str] = []
+    started_at = time.time()
+
+    with subprocess.Popen(
+        argv,
+        cwd=cwd,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+    ) as proc:
+        selector = selectors.DefaultSelector()
+        if proc.stdout is not None:
+            selector.register(proc.stdout, selectors.EVENT_READ, ("stdout", stdout_parts, sys.stdout))
+        if proc.stderr is not None:
+            selector.register(proc.stderr, selectors.EVENT_READ, ("stderr", stderr_parts, sys.stderr))
+
+        timed_out = False
+        while selector.get_map():
+            remaining = timeout_seconds - (time.time() - started_at)
+            if remaining <= 0:
+                timed_out = True
+                proc.kill()
+                break
+
+            events = selector.select(timeout=remaining)
+            if not events and proc.poll() is not None:
+                break
+
+            for key, _ in events:
+                stream_name, parts, sink = key.data
+                chunk = key.fileobj.readline()
+                if chunk == "":
+                    selector.unregister(key.fileobj)
+                    continue
+                parts.append(chunk)
+                if stream_output:
+                    print(chunk, end="", file=sink)
+
+        if timed_out:
+            proc.wait()
+            return None, "".join(stdout_parts), "".join(stderr_parts), True
+
+        returncode = proc.wait()
+        return returncode, "".join(stdout_parts), "".join(stderr_parts), False
+
+
 def build_script_args(
     *,
     target_accuracy: float,
@@ -63,6 +121,7 @@ def build_script_args(
     warmup_trials: int,
     data_dir: str = REMOTE_DATA_DIR,
     json_only: bool = True,
+    preflight: bool = False,
     verbose: bool = False,
 ) -> list[str]:
     args = [
@@ -77,6 +136,8 @@ def build_script_args(
     ]
     if json_only:
         args.append("--json-only")
+    if preflight:
+        args.append("--preflight")
     if verbose:
         args.append("--verbose")
     return args
@@ -103,46 +164,48 @@ def run_airbench_candidate(
 
         env = dict(os.environ)
         env.setdefault("PYTHONUNBUFFERED", "1")
-
-        try:
-            completed = subprocess.run(
-                [sys.executable, str(script_path), *script_args],
-                cwd=tmpdir,
-                env=env,
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=timeout_seconds,
+        if print_subprocess_logs:
+            print(
+                "[modal] starting candidate "
+                f"timeout_seconds={timeout_seconds} script_args={script_args}"
             )
-        except subprocess.TimeoutExpired as exc:
+
+        returncode, stdout, stderr, timed_out = _run_subprocess(
+            argv=[sys.executable, str(script_path), *script_args],
+            cwd=tmpdir,
+            env=env,
+            timeout_seconds=timeout_seconds,
+            stream_output=print_subprocess_logs,
+        )
+        if timed_out:
+            if print_subprocess_logs:
+                print("[modal] candidate timed out")
             return {
                 "ok": False,
                 "failure_type": "timeout",
                 "message": f"candidate timed out after {timeout_seconds}s",
                 "runtime_seconds": time.time() - started_at,
-                "stdout_tail": _tail(exc.stdout or ""),
-                "stderr_tail": _tail(exc.stderr or ""),
+                "stdout_tail": _tail(stdout),
+                "stderr_tail": _tail(stderr),
             }
 
         runtime_seconds = time.time() - started_at
-        stdout = completed.stdout or ""
-        stderr = completed.stderr or ""
-
-        if print_subprocess_logs and stdout:
-            print(stdout, end="" if stdout.endswith("\n") else "\n")
-        if print_subprocess_logs and stderr:
-            print(stderr, end="" if stderr.endswith("\n") else "\n", file=sys.stderr)
+        if print_subprocess_logs:
+            print(
+                "[modal] candidate finished "
+                f"returncode={returncode} runtime_seconds={runtime_seconds:.2f}"
+            )
 
         # Persist dataset downloads cached under the volume mount.
         cifar_volume.commit()
 
-        if completed.returncode != 0:
+        if returncode != 0:
             return {
                 "ok": False,
                 "failure_type": "runtime_error",
-                "message": f"candidate exited with code {completed.returncode}",
+                "message": f"candidate exited with code {returncode}",
                 "runtime_seconds": runtime_seconds,
-                "returncode": completed.returncode,
+                "returncode": returncode,
                 "stdout_tail": _tail(stdout),
                 "stderr_tail": _tail(stderr),
             }
@@ -155,7 +218,7 @@ def run_airbench_candidate(
                 "failure_type": "invalid_json",
                 "message": f"could not parse candidate JSON output: {exc}",
                 "runtime_seconds": runtime_seconds,
-                "returncode": completed.returncode,
+                "returncode": returncode,
                 "stdout_tail": _tail(stdout),
                 "stderr_tail": _tail(stderr),
             }
@@ -170,7 +233,7 @@ def run_airbench_candidate(
         return {
             "ok": True,
             "runtime_seconds": runtime_seconds,
-            "returncode": completed.returncode,
+            "returncode": returncode,
             "stdout_tail": _tail(stdout),
             "stderr_tail": _tail(stderr),
             "result": payload,
@@ -192,6 +255,7 @@ def smoke(
             trials=trials,
             warmup_trials=warmup_trials,
             json_only=True,
+            preflight=True,
             verbose=True,
         ),
         print_subprocess_logs=True,

@@ -349,35 +349,6 @@ def run_single_trial(model, data_dir: str, use_dummy_labels: bool = False) -> di
     }
 
 
-def run_preflight(model, data_dir: str) -> dict[str, float]:
-    batch_size = 2000
-    train_loader = CifarLoader(data_dir, train=True, batch_size=batch_size, aug=dict(flip=True, translate=2))
-    test_loader = CifarLoader(data_dir, train=False, batch_size=batch_size)
-
-    model.reset()
-    train_images = train_loader.normalize(train_loader.images[:5000])
-    model.init_whiten(train_images)
-
-    model.train()
-    inputs, labels = next(iter(train_loader))
-    outputs = model(inputs, whiten_bias_grad=True)
-    loss = F.cross_entropy(outputs, labels, label_smoothing=0.2, reduction="mean")
-    loss.backward()
-    model.zero_grad(set_to_none=True)
-
-    model.eval()
-    with torch.no_grad():
-        eval_inputs = test_loader.normalize(test_loader.images[:batch_size])
-        _ = model(eval_inputs)
-
-    torch.cuda.synchronize()
-    return {
-        "train_batch_size": float(len(inputs)),
-        "eval_batch_size": float(len(eval_inputs)),
-        "loss": float(loss.item()),
-    }
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-dir", type=str, default="cifar10")
@@ -387,7 +358,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--disable-compile", action="store_true")
     parser.add_argument("--json-only", action="store_true")
-    parser.add_argument("--preflight", action="store_true")
     parser.add_argument("--verbose", action="store_true")
     return parser.parse_args()
 
@@ -405,17 +375,6 @@ def main() -> int:
             f"[config] data_dir={args.data_dir} trials={args.trials} "
             f"warmup_trials={args.warmup_trials} target_accuracy={target_accuracy:.4f}"
         )
-
-    if args.preflight:
-        set_trial_seed(args.seed)
-        preflight_result = run_preflight(model, args.data_dir)
-        if args.verbose:
-            print(
-                "[preflight] ok "
-                f"train_batch_size={preflight_result['train_batch_size']:.0f} "
-                f"eval_batch_size={preflight_result['eval_batch_size']:.0f} "
-                f"loss={preflight_result['loss']:.4f}"
-            )
 
     for warmup_idx in range(args.warmup_trials):
         set_trial_seed(args.seed + warmup_idx)

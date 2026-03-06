@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
+import os
 import sys
 import time
 from dataclasses import asdict, replace
@@ -26,6 +28,8 @@ else:
 
 
 DEFAULT_SEED_PATH = Path(__file__).with_name("seeds") / "airbench94_baseline.py"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_DOTENV_PATH = REPO_ROOT / ".env"
 
 
 def parse_args() -> argparse.Namespace:
@@ -71,6 +75,18 @@ def parse_args() -> argparse.Namespace:
         help="LiteLLM model used for GEPA reflection.",
     )
     parser.add_argument(
+        "--refiner-model",
+        type=str,
+        default=None,
+        help="Optional LiteLLM model for inner-loop refinement retries. Defaults to --reflection-model.",
+    )
+    parser.add_argument(
+        "--max-refinements",
+        type=int,
+        default=2,
+        help="Maximum immediate refinement retries per evaluated candidate. Use 0 to disable.",
+    )
+    parser.add_argument(
         "--cache-evaluation",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -94,6 +110,52 @@ def normalize_target_accuracy(raw_value: float) -> float:
     return raw_value / 100.0 if raw_value > 1.0 else raw_value
 
 
+def load_dotenv(path: Path) -> list[str]:
+    if not path.exists():
+        return []
+    loaded: list[str] = []
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :].strip()
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if not key:
+            continue
+        existing_value = os.environ.get(key)
+        if existing_value:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+            value = value[1:-1]
+        os.environ[key] = value
+        loaded.append(key)
+    return loaded
+
+
+def ensure_reflection_auth(
+    reflection_model: str,
+    *,
+    dry_run: bool,
+    refiner_model: str | None = None,
+    max_refinements: int = 0,
+) -> None:
+    if dry_run:
+        return
+    required_models = [reflection_model]
+    if max_refinements > 0 and refiner_model:
+        required_models.append(refiner_model)
+    if any(model.startswith("openai/") for model in required_models) and not os.environ.get("OPENAI_API_KEY"):
+        raise RuntimeError(
+            "OPENAI_API_KEY is required for reflection model "
+            f"{reflection_model!r}. Put it in the shell environment or .env before launching the run."
+        )
+
+
 def write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str), encoding="utf-8")
@@ -115,6 +177,7 @@ def write_progress_csv(path: Path, rows: list[dict[str, Any]]) -> None:
     fieldnames = [
         "metric_call",
         "candidate_kind",
+        "same_as_seed",
         "score",
         "best_score_so_far",
         "mean_accuracy",
@@ -126,6 +189,7 @@ def write_progress_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "is_first_target_hit",
         "elapsed_wall_clock_seconds",
         "runtime_seconds",
+        "remote_runtime_seconds",
     ]
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
@@ -138,6 +202,21 @@ def load_seed_solver(path: Path) -> str:
     if not path.exists():
         raise FileNotFoundError(f"Seed solver not found: {path}")
     return path.read_text(encoding="utf-8")
+
+
+def write_candidate_snapshot(
+    run_dir: Path,
+    *,
+    metric_call: int,
+    candidate_kind: str,
+    solver_code: str,
+    eval_result: AirbenchEvalResult,
+) -> None:
+    candidate_dir = run_dir / "candidates"
+    candidate_dir.mkdir(parents=True, exist_ok=True)
+    stem = f"metric_{metric_call:04d}_{candidate_kind}"
+    (candidate_dir / f"{stem}.py").write_text(solver_code, encoding="utf-8")
+    write_json(candidate_dir / f"{stem}.json", eval_result.as_side_info())
 
 
 def build_objective(target_accuracy: float) -> str:
@@ -153,8 +232,14 @@ def build_background(target_accuracy: float, trials: int, warmup_trials: int) ->
         "- Evaluator runs the script remotely on Modal using Python 3.11, torch 2.4.1, torchvision 0.19.1.\n"
         "- Hardware target is one NVIDIA A100-40GB GPU.\n"
         "- CIFAR-10 is cached on a Modal Volume mounted at /vol/cifar10.\n\n"
+        "Candidate format:\n"
+        "- Candidate is full `solver_code`, not a config dict.\n"
+        "- You may rewrite any part of the program: model, optimizer, schedule, augmentation, compilation, or evaluation logic.\n"
+        "- Return a complete standalone Python script, not a diff or patch.\n"
+        "- The script must remain executable as-is under the evaluator contract below.\n\n"
         "Output contract:\n"
-        "- Script must accept CLI flags: --data-dir, --trials, --warmup-trials, --target-accuracy, --json-only.\n"
+        "- Script must accept CLI flags: --data-dir, --trials, --warmup-trials, --target-accuracy, --json-only, --preflight.\n"
+        "- If --preflight is passed, run a cheap smoke-check before full warmup/trials to catch runtime or compile issues early.\n"
         "- Final stdout line must be a JSON object containing at least: mean_accuracy, mean_time_seconds, trials.\n"
         "- mean_accuracy may be reported as fraction or percentage; evaluator normalizes it.\n"
         "- mean_time_seconds must be positive.\n\n"
@@ -166,7 +251,10 @@ def build_background(target_accuracy: float, trials: int, warmup_trials: int) ->
         f"- Each score uses {trials} measured trial(s) after {warmup_trials} warmup trial(s).\n"
         "- Do not hardcode outputs, skip training, or fake metrics.\n"
         "- Prefer meaningful improvements to architecture, optimizer, augmentation, batch sizing, compile behavior, "
-        "or schedule. Avoid adding non-standard dependencies."
+        "or schedule.\n"
+        "- Preserve dtype consistency across normalized inputs, model weights, and biases, especially for compiled half-precision convolutions.\n"
+        "- Avoid adding non-standard dependencies.\n"
+        "- Preserve the CLI/JSON contract even if you substantially rewrite the program."
     )
 
 
@@ -184,11 +272,47 @@ def summarize_result(result: AirbenchEvalResult, metric_call: int, candidate_kin
         "trials": result.trials,
         "timestamp_utc": datetime.utcnow().isoformat() + "Z",
     }
+    if "remote_runtime_seconds" in result.extra:
+        row["remote_runtime_seconds"] = result.extra["remote_runtime_seconds"]
     if "meets_target" in result.extra:
         row["meets_target"] = result.extra["meets_target"]
     if "accuracy_margin" in result.extra:
         row["accuracy_margin"] = result.extra["accuracy_margin"]
     return row
+
+
+def classify_candidate_kind(
+    *,
+    metric_call: int,
+    solver_code: str,
+    seed_solver_code: str,
+    known_hashes: set[str],
+) -> tuple[str, str, bool]:
+    candidate_hash = hashlib.sha256(solver_code.encode("utf-8")).hexdigest()
+    same_as_seed = solver_code == seed_solver_code
+    if metric_call == 1:
+        candidate_kind = "seed"
+    elif same_as_seed and metric_call == 2:
+        candidate_kind = "base_recheck"
+    elif candidate_hash in known_hashes:
+        candidate_kind = "repeat"
+    else:
+        candidate_kind = "gepa"
+    known_hashes.add(candidate_hash)
+    return candidate_kind, candidate_hash, same_as_seed
+
+
+def print_eval_summary(prefix: str, result: AirbenchEvalResult) -> None:
+    remote_runtime = result.extra.get("remote_runtime_seconds")
+    remote_runtime_str = "n/a" if remote_runtime is None else f"{float(remote_runtime):.2f}s"
+    accuracy_str = "n/a" if result.mean_accuracy is None else f"{100.0 * float(result.mean_accuracy):.3f}%"
+    bench_time_str = "n/a" if result.mean_time_seconds is None else f"{float(result.mean_time_seconds):.4f}s"
+    print(
+        f"{prefix} valid={result.valid} score={result.score:.6f} "
+        f"accuracy={accuracy_str} benchmark_time={bench_time_str} "
+        f"eval_wall={result.runtime_seconds:.2f}s remote_wall={remote_runtime_str} "
+        f"failure={result.failure_type}"
+    )
 
 
 def annotate_progress(
@@ -334,6 +458,7 @@ def _run_with_modal_context(args: argparse.Namespace, eval_cfg: AirbenchEvalConf
         trials=eval_cfg.trials,
         warmup_trials=eval_cfg.warmup_trials,
     )
+    refiner_model = args.refiner_model or args.reflection_model
 
     write_json(
         args.run_dir / "run_config.json",
@@ -343,14 +468,34 @@ def _run_with_modal_context(args: argparse.Namespace, eval_cfg: AirbenchEvalConf
             "eval_config": asdict(eval_cfg),
             "objective": objective,
             "background": background,
+            "refiner_model": refiner_model,
+            "max_refinements": args.max_refinements,
         },
     )
     (args.run_dir / "seed_solver.py").write_text(seed_solver_code, encoding="utf-8")
 
     eval_history: list[dict[str, Any]] = []
+    known_candidate_hashes: set[str] = set()
 
+    print("[seed] evaluating seed candidate on Modal")
     seed_eval = evaluate_solver_code(seed_solver_code, eval_cfg, run_airbench_candidate)
-    seed_row = summarize_result(seed_eval, metric_call=1, candidate_kind="seed")
+    print_eval_summary("[seed] finished", seed_eval)
+    seed_kind, seed_hash, seed_same_as_seed = classify_candidate_kind(
+        metric_call=1,
+        solver_code=seed_solver_code,
+        seed_solver_code=seed_solver_code,
+        known_hashes=known_candidate_hashes,
+    )
+    seed_row = summarize_result(seed_eval, metric_call=1, candidate_kind=seed_kind)
+    seed_row["candidate_sha256"] = seed_hash
+    seed_row["same_as_seed"] = seed_same_as_seed
+    write_candidate_snapshot(
+        args.run_dir,
+        metric_call=1,
+        candidate_kind=seed_kind,
+        solver_code=seed_solver_code,
+        eval_result=seed_eval,
+    )
     eval_history.append(
         annotate_progress(
             seed_row,
@@ -377,8 +522,28 @@ def _run_with_modal_context(args: argparse.Namespace, eval_cfg: AirbenchEvalConf
         nonlocal metric_call_counter
         metric_call_counter += 1
         solver_code = candidate.get("solver_code", "")
+        candidate_kind, candidate_hash, same_as_seed = classify_candidate_kind(
+            metric_call=metric_call_counter,
+            solver_code=solver_code,
+            seed_solver_code=seed_solver_code,
+            known_hashes=known_candidate_hashes,
+        )
+        print(
+            f"[eval {metric_call_counter:03d}] submitting candidate to Modal "
+            f"kind={candidate_kind} same_as_seed={same_as_seed}"
+        )
         eval_result = evaluate_solver_code(solver_code, eval_cfg, run_airbench_candidate)
-        row = summarize_result(eval_result, metric_call_counter, candidate_kind="gepa")
+        print_eval_summary(f"[eval {metric_call_counter:03d}] finished", eval_result)
+        row = summarize_result(eval_result, metric_call_counter, candidate_kind=candidate_kind)
+        row["candidate_sha256"] = candidate_hash
+        row["same_as_seed"] = same_as_seed
+        write_candidate_snapshot(
+            args.run_dir,
+            metric_call=metric_call_counter,
+            candidate_kind=candidate_kind,
+            solver_code=solver_code,
+            eval_result=eval_result,
+        )
         if opt_state is not None:
             row["best_example_evals_seen"] = len(opt_state.best_example_evals)
         row = annotate_progress(
@@ -401,6 +566,7 @@ def _run_with_modal_context(args: argparse.Namespace, eval_cfg: AirbenchEvalConf
             run_dir=str(args.run_dir),
             seed=args.seed,
             display_progress_bar=True,
+            use_cloudpickle=False,
             max_metric_calls=args.max_metric_calls,
             cache_evaluation=args.cache_evaluation,
             capture_stdio=False,
@@ -408,6 +574,14 @@ def _run_with_modal_context(args: argparse.Namespace, eval_cfg: AirbenchEvalConf
         reflection=oa.ReflectionConfig(
             reflection_lm=args.reflection_model,
             reflection_minibatch_size=1,
+        ),
+        refiner=(
+            oa.RefinerConfig(
+                refiner_lm=refiner_model,
+                max_refinements=args.max_refinements,
+            )
+            if args.max_refinements > 0
+            else None
         ),
     )
 
@@ -440,8 +614,16 @@ def _run_with_modal_context(args: argparse.Namespace, eval_cfg: AirbenchEvalConf
         "best_verified_mean_accuracy": best_verified.mean_accuracy,
         "best_verified_mean_time_seconds": best_verified.mean_time_seconds,
         "reflection_model": args.reflection_model,
+        "refiner_model": refiner_model if args.max_refinements > 0 else None,
+        "max_refinements": args.max_refinements,
         "total_metric_calls": result.total_metric_calls,
         "num_full_val_evals": result.num_full_val_evals,
+        "total_evaluated_candidates_observed": len(eval_history),
+        "num_distinct_candidate_programs_observed": len({row["candidate_sha256"] for row in eval_history}),
+        "num_true_gepa_candidates_observed": sum(1 for row in eval_history if row["candidate_kind"] == "gepa"),
+        "num_repeated_candidates_observed": sum(
+            1 for row in eval_history if row["candidate_kind"] in {"base_recheck", "repeat"}
+        ),
         "total_wall_clock_seconds": time.perf_counter() - run_started_at,
         "run_dir": str(args.run_dir),
     }
@@ -453,18 +635,35 @@ def _run_with_modal_context(args: argparse.Namespace, eval_cfg: AirbenchEvalConf
     print(f"[gepa] best verified mean acc   : {summary['best_verified_mean_accuracy']}")
     print(f"[gepa] best verified mean time  : {summary['best_verified_mean_time_seconds']}")
     print(f"[gepa] best verified valid      : {summary['best_verified_valid']}")
+    print(f"[gepa] observed evaluator calls : {summary['total_evaluated_candidates_observed']}")
+    if args.max_refinements > 0:
+        print(
+            f"[gepa] inner refiner           : enabled "
+            f"(model={refiner_model}, max_refinements={args.max_refinements})"
+        )
     print(f"[gepa] run artifacts            : {args.run_dir}")
     return 0
 
 
 def main() -> int:
     args = parse_args()
+    loaded_env_keys = load_dotenv(DEFAULT_DOTENV_PATH)
+    if loaded_env_keys:
+        print(f"[setup] loaded env keys from {DEFAULT_DOTENV_PATH}: {', '.join(sorted(loaded_env_keys))}")
+    ensure_reflection_auth(
+        args.reflection_model,
+        dry_run=args.dry_run,
+        refiner_model=args.refiner_model or args.reflection_model,
+        max_refinements=args.max_refinements,
+    )
     eval_cfg = AirbenchEvalConfig(
         target_accuracy=normalize_target_accuracy(args.target_accuracy),
         trials=args.trials,
         warmup_trials=args.warmup_trials,
         timeout_seconds=args.timeout_seconds,
     )
+    if args.modal_show_output:
+        eval_cfg = replace(eval_cfg, candidate_verbose=True, stream_subprocess_logs=True)
 
     if args.modal_show_output:
         with modal.enable_output(), app.run():

@@ -1,0 +1,46 @@
+{
+  "accuracy_margin": -0.0019000196456908647,
+  "failure_type": null,
+  "mean_accuracy": 0.9380999803543091,
+  "mean_time_seconds": 3.136227551937103,
+  "meets_target": false,
+  "message": "mean_accuracy=0.9381 mean_time_seconds=3.1362 meets_target=False",
+  "payload": {
+    "_modal": {
+      "app_name": "airbench-gepa",
+      "data_dir": "/vol/cifar10",
+      "gpu": "A100-40GB",
+      "runtime_seconds": 85.12986040115356
+    },
+    "compiled": true,
+    "device_name": "NVIDIA A100-SXM4-40GB",
+    "mean_accuracy": 0.9380999803543091,
+    "mean_time_seconds": 3.136227551937103,
+    "meets_target": false,
+    "per_trial": [
+      {
+        "time_seconds": 3.136227551937103,
+        "tta_val_accuracy": 0.9380999803543091
+      }
+    ],
+    "std_accuracy": 0.0,
+    "std_time_seconds": 0.0,
+    "target_accuracy": 0.94,
+    "torch_version": "2.4.1+cu124",
+    "trials": 1,
+    "warmup_trials": 1
+  },
+  "remote_runtime_seconds": 85.12986040115356,
+  "runtime_seconds": 85.4485170841217,
+  "score": 0.9380999803543091,
+  "scores": {
+    "accuracy_margin": -0.0019000196456908647,
+    "inverse_time": 0.3188544145600488,
+    "meets_target": 0.0
+  },
+  "stderr_tail": "/tmp/airbench_candidate_w2pu_yzp/candidate.py:111: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.\n  data = torch.load(data_path, map_location=torch.device(\"cuda\"))\n/tmp/airbench_candidate_w2pu_yzp/candidate.py:111: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.\n  data = torch.load(data_path, map_location=torch.device(\"cuda\"))\n",
+  "stdout_tail": "{\"mean_accuracy\": 0.9380999803543091, \"std_accuracy\": 0.0, \"mean_time_seconds\": 3.136227551937103, \"std_time_seconds\": 0.0, \"meets_target\": false, \"target_accuracy\": 0.94, \"trials\": 1, \"warmup_trials\": 1, \"per_trial\": [{\"tta_val_accuracy\": 0.9380999803543091, \"time_seconds\": 3.136227551937103}], \"torch_version\": \"2.4.1+cu124\", \"device_name\": \"NVIDIA A100-SXM4-40GB\", \"compiled\": true}\n",
+  "target_accuracy": 0.94,
+  "trials": 1,
+  "valid": true
+}

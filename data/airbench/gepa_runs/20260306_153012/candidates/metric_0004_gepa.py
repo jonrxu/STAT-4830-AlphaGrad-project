@@ -1,54 +1,69 @@
 #!/usr/bin/env python3
-"""AirBench 94 baseline with a CLI and JSON output contract."""
+"""Fast CIFAR-10 trainer targeting >=94% TTA accuracy on one A100.
+
+Keeps the evaluator CLI/JSON contract while improving warmup/runtime by:
+- compiling only the model forward path once via torch.compile(model)
+- removing compile from the tiny Newton-Schulz helper
+- caching dataset tensors on GPU in channels-last fp16
+- keeping the proven AirBench-style recipe that already meets target
+"""
 
 from __future__ import annotations
 
 import argparse
 import json
 from math import ceil
+from pathlib import Path
 
 import torch
 import torch.nn.functional as F
 import torchvision
-import torchvision.transforms as T
 from torch import nn
 
 
 torch.backends.cudnn.benchmark = True
+try:
+    torch.set_float32_matmul_precision("high")
+except Exception:
+    pass
 
 
-@torch.compile
-def zeropower_via_newtonschulz5(G, steps=3, eps=1e-7):
-    assert len(G.shape) == 2
+CIFAR_MEAN = (0.4914, 0.4822, 0.4465)
+CIFAR_STD = (0.2470, 0.2435, 0.2616)
+
+
+def zeropower_via_newtonschulz5(G: torch.Tensor, steps: int = 3, eps: float = 1e-7) -> torch.Tensor:
+    assert G.ndim == 2
     a, b, c = (3.4445, -4.7750, 2.0315)
-    X = G.bfloat16()
-    X /= X.norm() + eps
-    if G.size(0) > G.size(1):
+    X = G.to(torch.bfloat16)
+    X = X / (X.norm() + eps)
+    transposed = G.size(0) > G.size(1)
+    if transposed:
         X = X.T
     for _ in range(steps):
         A = X @ X.T
-        B = b * A + c * A @ A
+        B = b * A + c * (A @ A)
         X = a * X + B @ X
-    if G.size(0) > G.size(1):
+    if transposed:
         X = X.T
-    return X
+    return X.to(G.dtype)
 
 
 class Muon(torch.optim.Optimizer):
-    def __init__(self, params, lr=1e-3, momentum=0, nesterov=False):
-        if lr < 0.0:
-            raise ValueError(f"Invalid learning rate: {lr}")
-        if momentum < 0.0:
-            raise ValueError(f"Invalid momentum value: {momentum}")
-        if nesterov and momentum <= 0:
-            raise ValueError("Nesterov momentum requires a momentum")
+    def __init__(self, params, lr=1e-3, momentum=0.0, nesterov=False):
         defaults = dict(lr=lr, momentum=momentum, nesterov=nesterov)
         super().__init__(params, defaults)
 
-    def step(self):
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
         for group in self.param_groups:
             lr = group["lr"]
             momentum = group["momentum"]
+            nesterov = group["nesterov"]
             for p in group["params"]:
                 g = p.grad
                 if g is None:
@@ -58,22 +73,20 @@ class Muon(torch.optim.Optimizer):
                     state["momentum_buffer"] = torch.zeros_like(g)
                 buf = state["momentum_buffer"]
                 buf.mul_(momentum).add_(g)
-                g = g.add(buf, alpha=momentum) if group["nesterov"] else buf
-                p.data.mul_(len(p.data) ** 0.5 / p.data.norm())
-                update = zeropower_via_newtonschulz5(g.reshape(len(g), -1)).view(g.shape)
-                p.data.add_(update, alpha=-lr)
+                g_eff = g.add(buf, alpha=momentum) if nesterov else buf
+                p_norm = p.norm().clamp_min(1e-12)
+                p.mul_((len(p) ** 0.5) / p_norm)
+                update = zeropower_via_newtonschulz5(g_eff.reshape(len(g_eff), -1)).view_as(g_eff)
+                p.add_(update, alpha=-lr)
+        return loss
 
 
-CIFAR_MEAN = torch.tensor((0.4914, 0.4822, 0.4465))
-CIFAR_STD = torch.tensor((0.2470, 0.2435, 0.2616))
-
-
-def batch_flip_lr(inputs):
+def batch_flip_lr(inputs: torch.Tensor) -> torch.Tensor:
     flip_mask = (torch.rand(len(inputs), device=inputs.device) < 0.5).view(-1, 1, 1, 1)
     return torch.where(flip_mask, inputs.flip(-1), inputs)
 
 
-def batch_crop(images, crop_size):
+def batch_crop(images: torch.Tensor, crop_size: int) -> torch.Tensor:
     r = (images.size(-1) - crop_size) // 2
     shifts = torch.randint(-r, r + 1, size=(len(images), 2), device=images.device)
     images_out = torch.empty((len(images), 3, crop_size, crop_size), device=images.device, dtype=images.dtype)
@@ -81,26 +94,23 @@ def batch_crop(images, crop_size):
         for sy in range(-r, r + 1):
             for sx in range(-r, r + 1):
                 mask = (shifts[:, 0] == sy) & (shifts[:, 1] == sx)
-                images_out[mask] = images[mask, :, r + sy : r + sy + crop_size, r + sx : r + sx + crop_size]
+                if mask.any():
+                    images_out[mask] = images[mask, :, r + sy : r + sy + crop_size, r + sx : r + sx + crop_size]
     else:
-        images_tmp = torch.empty(
-            (len(images), 3, crop_size, crop_size + 2 * r),
-            device=images.device,
-            dtype=images.dtype,
-        )
+        images_tmp = torch.empty((len(images), 3, crop_size, crop_size + 2 * r), device=images.device, dtype=images.dtype)
         for s in range(-r, r + 1):
             mask = shifts[:, 0] == s
-            images_tmp[mask] = images[mask, :, r + s : r + s + crop_size, :]
+            if mask.any():
+                images_tmp[mask] = images[mask, :, r + s : r + s + crop_size, :]
         for s in range(-r, r + 1):
             mask = shifts[:, 1] == s
-            images_out[mask] = images_tmp[mask, :, :, r + s : r + s + crop_size]
+            if mask.any():
+                images_out[mask] = images_tmp[mask, :, :, r + s : r + s + crop_size]
     return images_out
 
 
 class CifarLoader:
-    def __init__(self, path, train=True, batch_size=500, aug=None):
-        from pathlib import Path
-
+    def __init__(self, path: str, train: bool = True, batch_size: int = 500, aug=None):
         data_path = Path(path) / ("train.pt" if train else "test.pt")
         if not data_path.exists():
             dset = torchvision.datasets.CIFAR10(path, download=True, train=train)
@@ -108,12 +118,17 @@ class CifarLoader:
             labels = torch.tensor(dset.targets)
             torch.save({"images": images, "labels": labels, "classes": dset.classes}, data_path)
 
-        data = torch.load(data_path, map_location=torch.device("cuda"))
-        self.images, self.labels, self.classes = data["images"], data["labels"], data["classes"]
-        self.images = (self.images.half() / 255).permute(0, 3, 1, 2).to(memory_format=torch.channels_last)
+        data = torch.load(data_path, map_location="cpu", weights_only=False)
+        self.images = data["images"].to(device="cuda", non_blocking=True)
+        self.labels = data["labels"].to(device="cuda", non_blocking=True)
+        self.classes = data["classes"]
 
-        self.normalize = T.Normalize(CIFAR_MEAN, CIFAR_STD)
-        self.proc_images = {}
+        self.images = (self.images.to(torch.float16) / 255.0).permute(0, 3, 1, 2).contiguous(memory_format=torch.channels_last)
+        mean = torch.tensor(CIFAR_MEAN, device="cuda", dtype=torch.float16).view(1, 3, 1, 1)
+        std = torch.tensor(CIFAR_STD, device="cuda", dtype=torch.float16).view(1, 3, 1, 1)
+        self._mean = mean
+        self._std = std
+        self.proc_images: dict[str, torch.Tensor] = {}
         self.epoch = 0
         self.aug = aug or {}
         for key in self.aug:
@@ -123,7 +138,10 @@ class CifarLoader:
         self.drop_last = train
         self.shuffle = train
 
-    def __len__(self):
+    def normalize(self, x: torch.Tensor) -> torch.Tensor:
+        return (x - self._mean) / self._std
+
+    def __len__(self) -> int:
         if self.drop_last:
             return len(self.images) // self.batch_size
         return ceil(len(self.images) / self.batch_size)
@@ -220,24 +238,25 @@ class CifarNet(nn.Module):
         w = self.head.weight.data
         w *= 1 / w.std()
 
-    def init_whiten(self, train_images, eps=5e-4):
+    @torch.no_grad()
+    def init_whiten(self, train_images: torch.Tensor, eps: float = 5e-4):
         c, (h, w) = train_images.shape[1], self.whiten.weight.shape[2:]
         patches = train_images.unfold(2, h, 1).unfold(3, w, 1).transpose(1, 3).reshape(-1, c, h, w).float()
         patches_flat = patches.view(len(patches), -1)
-        est_patch_covariance = (patches_flat.T @ patches_flat) / len(patches_flat)
-        eigenvalues, eigenvectors = torch.linalg.eigh(est_patch_covariance, UPLO="U")
-        eigenvectors_scaled = eigenvectors.T.reshape(-1, c, h, w) / torch.sqrt(eigenvalues.view(-1, 1, 1, 1) + eps)
-        self.whiten.weight.data[:] = torch.cat((eigenvectors_scaled, -eigenvectors_scaled))
+        cov = (patches_flat.T @ patches_flat) / len(patches_flat)
+        evals, evecs = torch.linalg.eigh(cov, UPLO="U")
+        scaled = evecs.T.reshape(-1, c, h, w) / torch.sqrt(evals.view(-1, 1, 1, 1) + eps)
+        self.whiten.weight.data.copy_(torch.cat((scaled, -scaled)).to(self.whiten.weight.dtype))
 
-    def forward(self, x, whiten_bias_grad=True):
+    def forward(self, x, whiten_bias_grad: bool = True):
         bias = self.whiten.bias
         x = F.conv2d(x, self.whiten.weight, bias if whiten_bias_grad else bias.detach())
         x = self.layers(x)
-        x = x.view(len(x), -1)
+        x = x.reshape(len(x), -1)
         return self.head(x) / x.size(-1)
 
 
-def infer(model, loader, tta_level=0):
+def infer(model, loader: CifarLoader, tta_level: int = 0):
     def infer_basic(inputs, net):
         return net(inputs).clone()
 
@@ -262,7 +281,7 @@ def infer(model, loader, tta_level=0):
         return torch.cat([infer_fn(inputs, model) for inputs in test_images.split(2000)])
 
 
-def evaluate(model, loader, tta_level=0):
+def evaluate(model, loader: CifarLoader, tta_level: int = 0) -> float:
     logits = infer(model, loader, tta_level)
     return (logits.argmax(1) == loader.labels).float().mean().item()
 
@@ -286,7 +305,7 @@ def run_single_trial(model, data_dir: str, use_dummy_labels: bool = False) -> di
     total_train_steps = ceil(8 * len(train_loader))
     whiten_bias_train_steps = ceil(3 * len(train_loader))
 
-    filter_params = [p for p in model.parameters() if len(p.shape) == 4 and p.requires_grad]
+    filter_params = [p for p in model.parameters() if p.requires_grad and p.ndim == 4]
     norm_biases = [p for name, p in model.named_parameters() if "norm" in name and p.requires_grad]
     param_configs = [
         dict(params=[model.whiten.bias], lr=bias_lr, weight_decay=wd / bias_lr),
@@ -308,9 +327,9 @@ def run_single_trial(model, data_dir: str, use_dummy_labels: bool = False) -> di
         starter.record()
 
     def stop_timer():
+        nonlocal time_seconds
         ender.record()
         torch.cuda.synchronize()
-        nonlocal time_seconds
         time_seconds += 1e-3 * starter.elapsed_time(ender)
 
     model.reset()
@@ -327,35 +346,35 @@ def run_single_trial(model, data_dir: str, use_dummy_labels: bool = False) -> di
         for inputs, labels in train_loader:
             outputs = model(inputs, whiten_bias_grad=(step < whiten_bias_train_steps))
             F.cross_entropy(outputs, labels, label_smoothing=0.2, reduction="sum").backward()
-            for group in optimizer1.param_groups[:1]:
-                group["lr"] = group["initial_lr"] * (1 - step / whiten_bias_train_steps)
-            for group in optimizer1.param_groups[1:] + optimizer2.param_groups:
+            optimizer1.param_groups[0]["lr"] = optimizer1.param_groups[0]["initial_lr"] * (1 - step / whiten_bias_train_steps)
+            for group in optimizer1.param_groups[1:]:
                 group["lr"] = group["initial_lr"] * (1 - step / total_train_steps)
-            for opt in optimizers:
-                opt.step()
+            for group in optimizer2.param_groups:
+                group["lr"] = group["initial_lr"] * (1 - step / total_train_steps)
+            optimizer1.step()
+            optimizer2.step()
             model.zero_grad(set_to_none=True)
             step += 1
             if step >= total_train_steps:
                 break
         stop_timer()
+        if step >= total_train_steps:
+            break
 
     start_timer()
     tta_val_acc = evaluate(model, test_loader, tta_level=2)
     stop_timer()
 
-    return {
-        "tta_val_accuracy": float(tta_val_acc),
-        "time_seconds": float(time_seconds),
-    }
+    return {"tta_val_accuracy": float(tta_val_acc), "time_seconds": float(time_seconds)}
 
 
 def run_preflight(model, data_dir: str) -> dict[str, float]:
-    batch_size = 2000
+    batch_size = 1024
     train_loader = CifarLoader(data_dir, train=True, batch_size=batch_size, aug=dict(flip=True, translate=2))
     test_loader = CifarLoader(data_dir, train=False, batch_size=batch_size)
 
     model.reset()
-    train_images = train_loader.normalize(train_loader.images[:5000])
+    train_images = train_loader.normalize(train_loader.images[:2048])
     model.init_whiten(train_images)
 
     model.train()
@@ -380,14 +399,14 @@ def run_preflight(model, data_dir: str) -> dict[str, float]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--data-dir", type=str, default="cifar10")
+    parser.add_argument("--data-dir", type=str, default="/vol/cifar10")
     parser.add_argument("--trials", type=int, default=1)
     parser.add_argument("--warmup-trials", type=int, default=1)
     parser.add_argument("--target-accuracy", type=float, default=0.94)
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--disable-compile", action="store_true")
     parser.add_argument("--json-only", action="store_true")
     parser.add_argument("--preflight", action="store_true")
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--disable-compile", action="store_true")
     parser.add_argument("--verbose", action="store_true")
     return parser.parse_args()
 
@@ -396,9 +415,8 @@ def main() -> int:
     args = parse_args()
     target_accuracy = args.target_accuracy / 100.0 if args.target_accuracy > 1.0 else args.target_accuracy
 
-    model = CifarNet().cuda().to(memory_format=torch.channels_last)
-    if not args.disable_compile:
-        model.compile(mode="max-autotune")
+    base_model = CifarNet().cuda().to(memory_format=torch.channels_last)
+    model = torch.compile(base_model, mode="max-autotune") if not args.disable_compile else base_model
 
     if args.verbose:
         print(
@@ -421,12 +439,9 @@ def main() -> int:
         set_trial_seed(args.seed + warmup_idx)
         warmup_result = run_single_trial(model, args.data_dir, use_dummy_labels=True)
         if args.verbose:
-            print(
-                f"[warmup {warmup_idx + 1}/{args.warmup_trials}] "
-                f"time_seconds={warmup_result['time_seconds']:.4f}"
-            )
+            print(f"[warmup {warmup_idx + 1}/{args.warmup_trials}] time_seconds={warmup_result['time_seconds']:.4f}")
 
-    per_trial: list[dict[str, float]] = []
+    per_trial = []
     for trial_idx in range(args.trials):
         set_trial_seed(args.seed + args.warmup_trials + trial_idx)
         trial_result = run_single_trial(model, args.data_dir, use_dummy_labels=False)
@@ -459,7 +474,7 @@ def main() -> int:
     if args.json_only:
         print(json.dumps(result))
     else:
-        print(json.dumps(result, indent=2, sort_keys=True))
+        print(json.dumps(result, sort_keys=True))
     return 0
 
 

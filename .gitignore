@@ -4,8 +4,6 @@ docs/figures/*
 !docs/figures/*.tex
 
 .env
-.conda-envs/
-.conda-pkgs/
 __pycache__/
 *.pyc
 

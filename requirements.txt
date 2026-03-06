@@ -1,0 +1,5 @@
+# Local orchestration dependencies for GEPA + Modal.
+# GPU training dependencies for AirBench should be installed inside the Modal image.
+modal==1.3.5
+litellm==1.82.0
+openai==2.26.0

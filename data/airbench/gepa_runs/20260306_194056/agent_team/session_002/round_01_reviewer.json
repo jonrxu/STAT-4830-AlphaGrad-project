@@ -1,0 +1,16 @@
+{
+  "approve": false,
+  "issues": [
+    "run_single_trial catches RuntimeError and retries with model._orig_mod, but _run_single_trial_impl mutates optimizer state and compiled graph interactions; this is the most likely source of the observed runtime_error and is not fixed at root",
+    "Fallback is incomplete: if the RuntimeError is not caused by compile wrapping, retrying the same implementation on the uncompiled module can still fail; no logging/context is emitted, making regression diagnosis hard",
+    "CifarLoader loads cached .pt directly onto CUDA via torch.load(..., map_location='cuda'); this is brittle if cache was created differently or during download path creation, and can fail before fallback logic ever runs",
+    "Warmup uses use_dummy_labels=True but still performs full training and TTA eval, adding substantial remote runtime without benefiting reported metric; risky if evaluator time budget tightens",
+    "infer(tta_level=2) is asymmetric and only averages flipped original + flipped shifted images, not the unflipped views; accuracy may be fragile across seeds/checks",
+    "batch_flip_lr is dead code, suggesting unreviewed changes / leftover paths",
+    "Muon.step rescales parameters every step using len(p)**0.5 / p.norm(); for conv weights len(p) is just out_channels, which is unusual and easy to destabilize if architecture changes",
+    "weights_only=True fallback is good, but classes field may not load under future stricter semantics depending on serialization contents; contract risk is low but present",
+    "No explicit guard for args.trials==0 before taking mean over empty tensors, which would produce invalid JSON metrics if evaluator ever changes invocation",
+    "Preflight/warmup/trial all reuse the same model object; while reset() is called, compiled graph/cache state persists across phases and may contribute to the previously observed runtime_error"
+  ],
+  "summary": "Do not approve: current candidate already meets target, but the new changes introduce a likely runtime regression around torch.compile fallback and keep a brittle training/eval path with known failure mode."
+}

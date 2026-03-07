@@ -1,0 +1,16 @@
+{
+  "actual_device_name": null,
+  "failure_type": "runtime_error",
+  "gpu_mismatch_attempts": 0,
+  "mean_accuracy": null,
+  "mean_time_seconds": null,
+  "message": "candidate exited with code 2",
+  "remote_runtime_seconds": 3.998790979385376,
+  "requested_gpu": null,
+  "runtime_seconds": 4.15986704826355,
+  "score": 0.0,
+  "stderr_tail": "usage: candidate.py [-h] [--data-dir DATA_DIR] [--trials TRIALS]\n                    [--warmup-trials WARMUP_TRIALS]\n                    [--target-accuracy TARGET_ACCURACY] [--json-only]\n                    [--preflight] [--seed SEED] [--disable-compile]\ncandidate.py: error: unrecognized arguments: --verbose\n",
+  "stdout_tail": "",
+  "trials": null,
+  "valid": false
+}

@@ -33,6 +33,8 @@ class AirbenchEvalConfig:
     preflight: bool = True
     candidate_verbose: bool = False
     stream_subprocess_logs: bool = False
+    expected_device_marker: str | None = "40GB"
+    gpu_mismatch_retries: int = 2
 
     def normalized_target_accuracy(self) -> float:
         return _normalize_accuracy_value(float(self.target_accuracy))
@@ -154,20 +156,37 @@ def evaluate_solver_code(
             stderr_tail="",
         )
 
-    try:
-        remote_result = remote_runner.remote(
-            solver_code=solver_code,
-            script_args=build_script_args(config),
-            timeout_seconds=config.timeout_seconds,
-            print_subprocess_logs=config.stream_subprocess_logs,
-        )
-    except Exception as exc:
+    remote_result: dict[str, Any] | None = None
+    last_remote_exception: Exception | None = None
+    mismatch_attempts = 0
+    max_attempts = max(1, config.gpu_mismatch_retries + 1)
+    for attempt_idx in range(1, max_attempts + 1):
+        try:
+            remote_result = remote_runner.remote(
+                solver_code=solver_code,
+                script_args=build_script_args(config),
+                timeout_seconds=config.timeout_seconds,
+                print_subprocess_logs=config.stream_subprocess_logs,
+            )
+        except Exception as exc:
+            last_remote_exception = exc
+            remote_result = None
+            break
+
+        if remote_result.get("failure_type") != "gpu_mismatch":
+            break
+
+        mismatch_attempts = attempt_idx
+        if attempt_idx >= max_attempts:
+            break
+
+    if remote_result is None:
         elapsed = time.time() - started_at
         return _build_result(
             score=0.0,
             valid=False,
             failure_type="modal_error",
-            message=f"Modal execution failed: {exc}",
+            message=f"Modal execution failed: {last_remote_exception}",
             runtime_seconds=elapsed,
             mean_accuracy=None,
             mean_time_seconds=None,
@@ -192,7 +211,12 @@ def evaluate_solver_code(
             trials=None,
             stdout_tail=stdout_tail,
             stderr_tail=stderr_tail,
-            extra={"remote_runtime_seconds": remote_result.get("runtime_seconds")},
+            extra={
+                "remote_runtime_seconds": remote_result.get("runtime_seconds"),
+                "requested_gpu": remote_result.get("requested_gpu"),
+                "actual_device_name": remote_result.get("actual_device_name"),
+                "gpu_mismatch_attempts": mismatch_attempts,
+            },
         )
 
     payload = remote_result.get("result")
@@ -227,6 +251,31 @@ def evaluate_solver_code(
             stdout_tail=stdout_tail,
             stderr_tail=stderr_tail,
             extra={"payload": payload},
+        )
+
+    actual_device_name = str(payload.get("_modal", {}).get("actual_device_name") or payload.get("device_name") or "")
+    expected_device_marker = (config.expected_device_marker or "").upper()
+    if expected_device_marker and expected_device_marker not in actual_device_name.upper():
+        return _build_result(
+            score=0.0,
+            valid=False,
+            failure_type="gpu_mismatch",
+            message=(
+                f"expected device containing {config.expected_device_marker!r}, "
+                f"but payload reported {actual_device_name or '<unknown>'}"
+            ),
+            runtime_seconds=elapsed,
+            mean_accuracy=None,
+            mean_time_seconds=None,
+            trials=trials,
+            stdout_tail=stdout_tail,
+            stderr_tail=stderr_tail,
+            extra={
+                "payload": payload,
+                "requested_gpu": payload.get("_modal", {}).get("requested_gpu"),
+                "actual_device_name": actual_device_name,
+                "gpu_mismatch_attempts": mismatch_attempts,
+            },
         )
 
     if mean_time_seconds <= 0.0:
@@ -273,6 +322,9 @@ def evaluate_solver_code(
             "target_accuracy": target_accuracy,
             "accuracy_margin": accuracy_margin,
             "meets_target": meets_target,
+            "requested_gpu": payload.get("_modal", {}).get("requested_gpu"),
+            "actual_device_name": actual_device_name,
+            "gpu_mismatch_attempts": mismatch_attempts,
             "scores": {
                 "accuracy_margin": accuracy_margin,
                 "inverse_time": inverse_time,

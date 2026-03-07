@@ -1,0 +1,16 @@
+{
+  "actual_device_name": null,
+  "failure_type": "runtime_error",
+  "gpu_mismatch_attempts": 0,
+  "mean_accuracy": null,
+  "mean_time_seconds": null,
+  "message": "candidate exited with code 1",
+  "remote_runtime_seconds": 8.372331857681274,
+  "requested_gpu": null,
+  "runtime_seconds": 8.697164058685303,
+  "score": 0.0,
+  "stderr_tail": "le_value = get_fake_value(proxy.node, tx, allow_non_graph_fake=True)\n                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/torch/_dynamo/utils.py\", line 1853, in get_fake_value\n    raise TorchRuntimeError(str(e)).with_traceback(e.__traceback__) from None\n  File \"/usr/local/lib/python3.11/site-packages/torch/_dynamo/utils.py\", line 1785, in get_fake_value\n    ret_val = wrap_fake_exception(\n              ^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/torch/_dynamo/utils.py\", line 1300, in wrap_fake_exception\n    return fn()\n           ^^^^\n  File \"/usr/local/lib/python3.11/site-packages/torch/_dynamo/utils.py\", line 1786, in <lambda>\n    lambda: run_node(tx.output, node, args, kwargs, nnmodule)\n            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/torch/_dynamo/utils.py\", line 1921, in run_node\n    raise RuntimeError(make_error_message(e)).with_traceback(\n  File \"/usr/local/lib/python3.11/site-packages/torch/_dynamo/utils.py\", line 1903, in run_node\n    return node.target(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^\ntorch._dynamo.exc.TorchRuntimeError: Failed running call_function <built-in method conv2d of type object at 0x2b1f7a46e580>(*(FakeTensor(..., device='cuda:0', size=(2000, 3, 32, 32)), Parameter(FakeTensor(..., device='cuda:0', size=(24, 3, 2, 2), dtype=torch.float16)), Parameter(FakeTensor(..., device='cuda:0', size=(24,), dtype=torch.float16,\n           requires_grad=True))), **{}):\nInput type (float) and bias type (c10::Half) should be the same\n\nfrom user code:\n   File \"/tmp/airbench_candidate_mzn8zc3x/candidate.py\", line 257, in forward\n    x = F.conv2d(x, self.whiten.weight, bias)\n\nSet TORCH_LOGS=\"+dynamo\" and TORCHDYNAMO_VERBOSE=1 for more information\n\n\nYou can suppress this exception and fall back to eager by setting:\n    import torch._dynamo\n    torch._dynamo.config.suppress_errors = True\n\n",
+  "stdout_tail": "[config] data_dir=/vol/cifar10 trials=1 warmup_trials=1 target_accuracy=0.9400\n",
+  "trials": null,
+  "valid": false
+}

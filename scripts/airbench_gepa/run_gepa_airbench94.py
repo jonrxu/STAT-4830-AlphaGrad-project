@@ -20,9 +20,11 @@ import modal
 
 if __package__ in (None, ""):
     sys.path.append(str(Path(__file__).resolve().parent))
+    from agent_team_proposer import build_agent_team_candidate_proposer
     from airbench_evaluator import AirbenchEvalConfig, AirbenchEvalResult, evaluate_solver_code
     from modal_airbench import app, run_airbench_candidate
 else:
+    from .agent_team_proposer import build_agent_team_candidate_proposer
     from .airbench_evaluator import AirbenchEvalConfig, AirbenchEvalResult, evaluate_solver_code
     from .modal_airbench import app, run_airbench_candidate
 
@@ -73,6 +75,18 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default="openai/gpt-5.4",
         help="LiteLLM model used for GEPA reflection.",
+    )
+    parser.add_argument(
+        "--proposal-strategy",
+        choices=("single", "team"),
+        default="team",
+        help="How GEPA proposes candidate updates. 'team' uses a coordinator/worker/reviewer workflow.",
+    )
+    parser.add_argument(
+        "--team-rounds",
+        type=int,
+        default=2,
+        help="Maximum internal coordinator/worker/reviewer rounds per proposal when using team strategy.",
     )
     parser.add_argument(
         "--refiner-model",
@@ -274,6 +288,12 @@ def summarize_result(result: AirbenchEvalResult, metric_call: int, candidate_kin
     }
     if "remote_runtime_seconds" in result.extra:
         row["remote_runtime_seconds"] = result.extra["remote_runtime_seconds"]
+    if "actual_device_name" in result.extra:
+        row["actual_device_name"] = result.extra["actual_device_name"]
+    if "requested_gpu" in result.extra:
+        row["requested_gpu"] = result.extra["requested_gpu"]
+    if "gpu_mismatch_attempts" in result.extra:
+        row["gpu_mismatch_attempts"] = result.extra["gpu_mismatch_attempts"]
     if "meets_target" in result.extra:
         row["meets_target"] = result.extra["meets_target"]
     if "accuracy_margin" in result.extra:
@@ -307,11 +327,15 @@ def print_eval_summary(prefix: str, result: AirbenchEvalResult) -> None:
     remote_runtime_str = "n/a" if remote_runtime is None else f"{float(remote_runtime):.2f}s"
     accuracy_str = "n/a" if result.mean_accuracy is None else f"{100.0 * float(result.mean_accuracy):.3f}%"
     bench_time_str = "n/a" if result.mean_time_seconds is None else f"{float(result.mean_time_seconds):.4f}s"
+    actual_device_name = result.extra.get("actual_device_name")
+    mismatch_attempts = int(result.extra.get("gpu_mismatch_attempts", 0) or 0)
+    device_str = "" if not actual_device_name else f" device={actual_device_name}"
+    retry_str = "" if mismatch_attempts <= 0 else f" gpu_retries={mismatch_attempts}"
     print(
         f"{prefix} valid={result.valid} score={result.score:.6f} "
         f"accuracy={accuracy_str} benchmark_time={bench_time_str} "
         f"eval_wall={result.runtime_seconds:.2f}s remote_wall={remote_runtime_str} "
-        f"failure={result.failure_type}"
+        f"failure={result.failure_type}{device_str}{retry_str}"
     )
 
 
@@ -574,6 +598,19 @@ def _run_with_modal_context(args: argparse.Namespace, eval_cfg: AirbenchEvalConf
         reflection=oa.ReflectionConfig(
             reflection_lm=args.reflection_model,
             reflection_minibatch_size=1,
+            module_selector="all" if args.proposal_strategy == "team" else "round_robin",
+            custom_candidate_proposer=(
+                build_agent_team_candidate_proposer(
+                    lm=oa.make_litellm_lm(args.reflection_model),
+                    objective=objective,
+                    background=background,
+                    eval_history_ref=eval_history,
+                    run_dir=args.run_dir,
+                    max_rounds=args.team_rounds,
+                )
+                if args.proposal_strategy == "team"
+                else None
+            ),
         ),
         refiner=(
             oa.RefinerConfig(
@@ -614,6 +651,8 @@ def _run_with_modal_context(args: argparse.Namespace, eval_cfg: AirbenchEvalConf
         "best_verified_mean_accuracy": best_verified.mean_accuracy,
         "best_verified_mean_time_seconds": best_verified.mean_time_seconds,
         "reflection_model": args.reflection_model,
+        "proposal_strategy": args.proposal_strategy,
+        "team_rounds": args.team_rounds,
         "refiner_model": refiner_model if args.max_refinements > 0 else None,
         "max_refinements": args.max_refinements,
         "total_metric_calls": result.total_metric_calls,
@@ -641,6 +680,7 @@ def _run_with_modal_context(args: argparse.Namespace, eval_cfg: AirbenchEvalConf
             f"[gepa] inner refiner           : enabled "
             f"(model={refiner_model}, max_refinements={args.max_refinements})"
         )
+    print(f"[gepa] proposal strategy        : {args.proposal_strategy}")
     print(f"[gepa] run artifacts            : {args.run_dir}")
     return 0
 

@@ -42,6 +42,15 @@ def _tail(text: str, max_chars: int = 2000) -> str:
     return text[-max_chars:]
 
 
+def _expected_device_marker(requested_gpu: str) -> str | None:
+    requested = requested_gpu.upper()
+    if "40GB" in requested:
+        return "40GB"
+    if "80GB" in requested:
+        return "80GB"
+    return None
+
+
 def _extract_last_json(stdout: str) -> dict[str, Any]:
     lines = [line.strip() for line in stdout.splitlines() if line.strip()]
     for line in reversed(lines):
@@ -157,7 +166,31 @@ def run_airbench_candidate(
     timeout_seconds: int = 60 * 15,
     print_subprocess_logs: bool = False,
 ) -> dict[str, Any]:
+    import torch
+
     started_at = time.time()
+    actual_device_name = torch.cuda.get_device_name(0)
+    expected_marker = _expected_device_marker(DEFAULT_GPU)
+    if expected_marker is not None and expected_marker not in actual_device_name.upper():
+        if print_subprocess_logs:
+            print(
+                "[modal] gpu mismatch "
+                f"requested={DEFAULT_GPU} actual_device_name={actual_device_name}"
+            )
+        return {
+            "ok": False,
+            "failure_type": "gpu_mismatch",
+            "message": (
+                f"requested GPU {DEFAULT_GPU}, but Modal attached "
+                f"{actual_device_name}"
+            ),
+            "runtime_seconds": time.time() - started_at,
+            "requested_gpu": DEFAULT_GPU,
+            "actual_device_name": actual_device_name,
+            "stdout_tail": "",
+            "stderr_tail": "",
+        }
+
     with tempfile.TemporaryDirectory(prefix="airbench_candidate_") as tmpdir:
         script_path = Path(tmpdir) / "candidate.py"
         script_path.write_text(solver_code, encoding="utf-8")
@@ -226,6 +259,8 @@ def run_airbench_candidate(
         payload["_modal"] = {
             "app_name": APP_NAME,
             "gpu": DEFAULT_GPU,
+            "requested_gpu": DEFAULT_GPU,
+            "actual_device_name": actual_device_name,
             "data_dir": REMOTE_DATA_DIR,
             "runtime_seconds": runtime_seconds,
         }

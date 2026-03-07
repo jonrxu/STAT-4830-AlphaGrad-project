@@ -1,0 +1,16 @@
+{
+  "integration_notes": "The current candidate is already fast enough; the bottleneck is the 0.11 percentage-point accuracy gap. Prioritize recipe changes with high accuracy upside and low compile/runtime risk over broad rewrites. Keep warmup cost acceptable but optimize for measured trial behavior. Any new components should be compile-safe on torch 2.4.1/A100 and not introduce nonstandard dependencies.",
+  "performance_focus_sections": [
+    "train_eval_code",
+    "model_code",
+    "data_code"
+  ],
+  "performance_task": "In train_eval_code, retune the one-shot training schedule for better final generalization at essentially the same wall-clock: increase recipe quality with stronger-but-cheap augmentation regularization and/or EMA, tune LR/WD/momentum, and verify TTA implementation is optimal. In model_code, consider a slightly stronger yet still compile-friendly CIFAR architecture variant only if it does not materially raise step time. In data_code, ensure augmentation and batching stay fully GPU-efficient and avoid host bottlenecks.",
+  "reliability_focus_sections": [
+    "train_eval_code",
+    "cli_code",
+    "setup_code"
+  ],
+  "reliability_task": "In train_eval_code, harden dtype/device consistency under torch.compile + mixed precision, especially around normalized inputs, conv/bn/bias paths, EMA/state swapping, and TTA eval. In cli_code and setup_code, preserve evaluator contract exactly, keep preflight cheap, emit final JSON unconditionally, and remove avoidable runtime warnings or unsafe loads where possible.",
+  "round_goal": "Push accuracy just over 94.0% while keeping measured trial time near the current ~2.6s by improving the training recipe rather than chasing marginal infrastructure tweaks."
+}

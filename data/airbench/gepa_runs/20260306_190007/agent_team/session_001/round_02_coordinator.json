@@ -1,0 +1,16 @@
+{
+  "integration_notes": "Do not chase aggressive architectural changes because the current observed result already meets target with strong time. The main risk is submission completeness. Produce a single self-contained file with all five sections present and wired together. Preserve dtype consistency for normalized inputs and model parameters under mixed precision/compiled convolutions. If touching tensor cache loading, prefer a safe torch.load usage compatible with 2.4.1. Ensure the final stdout line is JSON and positive mean_time_seconds is reported from measured trials only.",
+  "performance_focus_sections": [
+    "train_eval_code",
+    "data_code",
+    "model_code"
+  ],
+  "performance_task": "Prioritize low-risk speed work in train_eval_code first: keep the proven training recipe, reduce evaluation overhead, ensure compile warmup is isolated to warmup trials, and avoid unnecessary syncs or transfers. In data_code, verify the cached tensor loading path is fully GPU-efficient and removes warning-inducing or slow options where possible. In model_code, only make conservative tweaks that preserve the already target-meeting accuracy/runtime balance; no major architecture changes this round.",
+  "reliability_focus_sections": [
+    "cli_code",
+    "setup_code",
+    "train_eval_code"
+  ],
+  "reliability_task": "Rebuild and validate the full script end-to-end with all required CLI flags and JSON final-line contract. Focus on cli_code and setup_code to guarantee the candidate is complete, executable as-is, and handles --preflight, warmup, measured trials, and json-only mode correctly. In train_eval_code, make sure timing, accuracy reporting, compile usage, and checkpoint/state reset between warmup and trial are deterministic enough for the evaluator and do not depend on omitted code.",
+  "round_goal": "Submit a complete standalone script that preserves the current fast >=94% TTA behavior while fixing the reported truncation/incompleteness risk and shaving small end-to-end trial time where safe."
+}

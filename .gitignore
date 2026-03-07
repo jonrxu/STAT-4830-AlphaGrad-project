@@ -3,4 +3,8 @@ docs/figures/*
 !docs/figures/*.png
 !docs/figures/*.tex
 
+.env
+__pycache__/
+*.pyc
+
 local/

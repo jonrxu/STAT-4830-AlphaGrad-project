@@ -1,0 +1,46 @@
+{
+  "accuracy_margin": -0.0019000196456908647,
+  "failure_type": null,
+  "mean_accuracy": 0.9380999803543091,
+  "mean_time_seconds": 2.593839291334152,
+  "meets_target": false,
+  "message": "mean_accuracy=0.9381 mean_time_seconds=2.5938 meets_target=False",
+  "payload": {
+    "_modal": {
+      "app_name": "airbench-gepa",
+      "data_dir": "/vol/cifar10",
+      "gpu": "A100-40GB",
+      "runtime_seconds": 155.9030110836029
+    },
+    "compiled": true,
+    "device_name": "NVIDIA A100-SXM4-40GB",
+    "mean_accuracy": 0.9380999803543091,
+    "mean_time_seconds": 2.593839291334152,
+    "meets_target": false,
+    "per_trial": [
+      {
+        "time_seconds": 2.593839291334152,
+        "tta_val_accuracy": 0.9380999803543091
+      }
+    ],
+    "std_accuracy": 0.0,
+    "std_time_seconds": 0.0,
+    "target_accuracy": 0.94,
+    "torch_version": "2.4.1+cu124",
+    "trials": 1,
+    "warmup_trials": 1
+  },
+  "remote_runtime_seconds": 155.9030110836029,
+  "runtime_seconds": 162.53165102005005,
+  "score": 0.9380999803543091,
+  "scores": {
+    "accuracy_margin": -0.0019000196456908647,
+    "inverse_time": 0.3855288966209028,
+    "meets_target": 0.0
+  },
+  "stderr_tail": "\n  triton_convolution_41 0.2765 ms 35.9%\n  triton_convolution_43 0.6431 ms 15.4%\nSingleProcess AUTOTUNE benchmarking takes 0.9841 seconds and 0.0021 seconds precompiling\nAUTOTUNE mm(10x2000, 2000x256)\n  triton_mm_68 0.0154 ms 100.0%\n  triton_mm_72 0.0154 ms 100.0%\n  mm 0.0184 ms 83.3%\n  triton_mm_76 0.0184 ms 83.3%\n  triton_mm_80 0.0195 ms 78.9%\n  triton_mm_66 0.0205 ms 75.0%\n  triton_mm_67 0.0205 ms 75.0%\n  triton_mm_71 0.0215 ms 71.4%\n  triton_mm_78 0.0225 ms 68.2%\n  triton_mm_75 0.0256 ms 60.0%\nSingleProcess AUTOTUNE benchmarking takes 1.9775 seconds and 0.0036 seconds precompiling\nAUTOTUNE mm(2000x10, 10x256)\n  triton_mm_86 0.0082 ms 100.0%\n  triton_mm_87 0.0082 ms 100.0%\n  triton_mm_81 0.0092 ms 88.9%\n  triton_mm_82 0.0092 ms 88.9%\n  triton_mm_83 0.0092 ms 88.9%\n  triton_mm_84 0.0092 ms 88.9%\n  triton_mm_85 0.0092 ms 88.9%\n  triton_mm_88 0.0092 ms 88.9%\n  triton_mm_89 0.0092 ms 88.9%\n  mm 0.0102 ms 80.0%\nSingleProcess AUTOTUNE benchmarking takes 1.8687 seconds and 0.0035 seconds precompiling\n/tmp/airbench_candidate_0lfbo9_k/candidate.py:111: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.\n  data = torch.load(data_path, map_location=torch.device(\"cuda\"))\n",
+  "stdout_tail": "{\"mean_accuracy\": 0.9380999803543091, \"std_accuracy\": 0.0, \"mean_time_seconds\": 2.593839291334152, \"std_time_seconds\": 0.0, \"meets_target\": false, \"target_accuracy\": 0.94, \"trials\": 1, \"warmup_trials\": 1, \"per_trial\": [{\"tta_val_accuracy\": 0.9380999803543091, \"time_seconds\": 2.593839291334152}], \"torch_version\": \"2.4.1+cu124\", \"device_name\": \"NVIDIA A100-SXM4-40GB\", \"compiled\": true}\n",
+  "target_accuracy": 0.94,
+  "trials": 1,
+  "valid": true
+}

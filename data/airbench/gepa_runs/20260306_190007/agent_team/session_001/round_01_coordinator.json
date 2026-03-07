@@ -1,0 +1,16 @@
+{
+  "integration_notes": "Do not spend this round on broad rewrites: the current candidate already meets target with no failures, so prioritize low-risk optimizations around the hot path. Any changes should keep the same evaluator-facing behavior, especially preflight, warmup, measured trial timing, and final JSON schema. If a speedup requires trading away accuracy headroom, keep a safety margin above 94.0% rather than chasing aggressive but brittle reductions.",
+  "performance_focus_sections": [
+    "train_eval_code",
+    "data_code",
+    "model_code"
+  ],
+  "performance_task": "Focus on train_eval_code first: trim per-trial work by tightening the training schedule, minimizing eval/TTA overhead, and ensuring compiled steady-state execution is maximally reused after warmup. In data_code, reduce input pipeline overhead by keeping GPU-resident/cached tensors and avoiding unnecessary transforms or dtype conversions. In model_code, only consider small architecture or norm/activation adjustments if they clearly improve speed-accuracy tradeoff without increasing compile cost.",
+  "reliability_focus_sections": [
+    "train_eval_code",
+    "cli_code",
+    "data_code"
+  ],
+  "reliability_task": "In train_eval_code, preserve exact dtype/device consistency across normalized inputs and model parameters, and keep preflight plus warmup paths representative of full execution to catch compile/runtime mismatches early. In cli_code, maintain the required flags and final JSON line contract. In data_code, harden cached loading behavior and avoid fragile assumptions about file contents or serialization defaults where possible.",
+  "round_goal": "Reduce measured trial time below the current ~2.60s while preserving at least 94.0% TTA accuracy and keeping warmup/compile behavior stable on A100."
+}

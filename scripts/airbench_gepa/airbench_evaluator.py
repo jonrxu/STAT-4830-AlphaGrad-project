@@ -33,7 +33,9 @@ class AirbenchEvalConfig:
     preflight: bool = True
     candidate_verbose: bool = False
     stream_subprocess_logs: bool = False
-    expected_device_marker: str | None = "40GB"
+    # Modal may attach different A100 memory variants for the same request.
+    # Enforce accelerator family and keep recording the exact device name.
+    expected_device_marker: str | None = "A100"
     gpu_mismatch_retries: int = 2
 
     def normalized_target_accuracy(self) -> float:

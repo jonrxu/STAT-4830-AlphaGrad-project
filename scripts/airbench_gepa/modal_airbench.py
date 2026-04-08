@@ -44,6 +44,12 @@ def _tail(text: str, max_chars: int = 2000) -> str:
 
 def _expected_device_marker(requested_gpu: str) -> str | None:
     requested = requested_gpu.upper()
+    # Modal can satisfy an A100 request with different memory variants
+    # (for example 40GB SXM4, 80GB SXM4, or 80GB PCIe). For harness scoring
+    # we care about staying on the A100 family and record the exact attached
+    # device in the payload for later analysis.
+    if "A100" in requested:
+        return "A100"
     if "40GB" in requested:
         return "40GB"
     if "80GB" in requested:

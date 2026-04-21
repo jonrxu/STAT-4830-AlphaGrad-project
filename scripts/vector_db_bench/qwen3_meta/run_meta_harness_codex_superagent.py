@@ -212,6 +212,7 @@ def _run_codex_exec(
         executable,
         "exec",
         "--ephemeral",
+        "--skip-git-repo-check",
         "--color",
         "never",
         "--json",

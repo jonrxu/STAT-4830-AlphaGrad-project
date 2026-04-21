@@ -119,7 +119,7 @@ app = modal.App("vdb-codex-campaign")
 @app.function(
     image=image,
     volumes={"/vdb_runs": campaign_volume},
-    secrets=[modal.Secret.from_dotenv(str(REPO_ROOT / ".env"))],
+    secrets=[modal.Secret.from_dotenv(str(REPO_ROOT / ".env")), modal.Secret.from_name("openai-key", required=False)],
     timeout=86400,  # 24 hours; re-run to resume if campaign exceeds this
     cpu=4.0,
     memory=16384,

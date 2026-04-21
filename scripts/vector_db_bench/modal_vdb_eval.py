@@ -42,41 +42,28 @@ REMOTE_BENCH = "/opt/vector-db-bench"
 REMOTE_DATA = "/opt/vdb-data"
 SERVER_PORT = 8080
 
+_in_modal_container = bool(os.environ.get("MODAL_TASK_ID", ""))
+
 _bench_root = os.environ.get("VECTOR_DB_BENCH_ROOT", "").strip()
-if not _bench_root:
+if not _bench_root and not _in_modal_container:
     raise RuntimeError(
         "Set VECTOR_DB_BENCH_ROOT to an absolute path of your local vector-db-bench clone before `modal run`."
     )
-_bench_path = Path(_bench_root).resolve()
-if not _bench_path.is_dir():
+_bench_path = Path(_bench_root).resolve() if _bench_root else Path(REMOTE_BENCH)
+if not _in_modal_container and not _bench_path.is_dir():
     raise RuntimeError(f"VECTOR_DB_BENCH_ROOT is not a directory: {_bench_path}")
 
 _data_root = os.environ.get("VECTOR_DB_BENCH_DATA", "").strip()
-_data_path = Path(_data_root).resolve() if _data_root else _bench_path / "data"
-if not _data_path.is_dir():
+_data_path = Path(_data_root).resolve() if _data_root else (_bench_path / "data" if not _in_modal_container else Path(REMOTE_DATA))
+if not _in_modal_container and not _data_path.is_dir():
     raise RuntimeError(
         f"Data directory missing: {_data_path}. Set VECTOR_DB_BENCH_DATA or prepare { _bench_path / 'data' }."
     )
 
-def _bench_mount_filter(local_path: str) -> bool:
-    parts = Path(local_path).parts
-    skip = {".git", "target", ".idea", ".vscode", "data"}
-    return not any(part in skip for part in parts)
-
-
-bench_mount = modal.Mount.from_local_dir(
-    str(_bench_path),
-    remote_path=REMOTE_BENCH,
-    condition=_bench_mount_filter,
-)
-
-data_mount = modal.Mount.from_local_dir(
-    str(_data_path),
-    remote_path=REMOTE_DATA,
-)
+_BENCH_IGNORE = [".git", "target", ".idea", ".vscode", "data"]
 
 rust_image = (
-    modal.Image.debian_bookworm_slim(python_version="3.11")
+    modal.Image.debian_slim(python_version="3.11")
     .apt_install(
         "curl",
         "ca-certificates",
@@ -96,6 +83,8 @@ rust_image = (
             "RUST_BACKTRACE": "1",
         }
     )
+    .add_local_dir(str(_bench_path), remote_path=REMOTE_BENCH, ignore=_BENCH_IGNORE)
+    .add_local_dir(str(_data_path), remote_path=REMOTE_DATA)
 )
 
 app = modal.App(APP_NAME)
@@ -122,7 +111,6 @@ def _extract_json_payload(raw_text: str) -> dict[str, Any]:
 
 @app.function(
     image=rust_image,
-    mounts=[bench_mount, data_mount],
     timeout=60 * 45,
     cpu=4.0,
     memory=8192,

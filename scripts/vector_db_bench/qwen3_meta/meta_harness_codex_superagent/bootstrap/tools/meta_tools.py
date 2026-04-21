@@ -191,20 +191,44 @@ def main() -> int:
 
     if args.cmd == "run_benchmark":
         max_queries = 0 if args.full else (args.max_queries if args.max_queries is not None else 1000)
-        try:
-            benchmark_bin = _ensure_benchmark_binary(bench_repo, runtime)
-            result = runtime["_run_benchmark_like"](
-                work_dir=workspace,
-                benchmark_bin=benchmark_bin,
-                data_dir=data_dir,
-                cpu_cores=cpu_cores,
-                concurrency=int(args.concurrency),
-                warmup=int(args.warmup),
-                max_queries=int(max_queries),
-                save_history=True,
-            )
-        except Exception as exc:  # noqa: BLE001
-            result = _error(str(exc))
+        use_modal = bool(config.get("use_modal_eval", False))
+        if use_modal:
+            try:
+                from scripts.vector_db_bench.qwen3_meta.meta_harness_common import run_modal_benchmark  # type: ignore[import-not-found]
+            except ModuleNotFoundError:
+                _ensure_repo_on_path(repo_root)
+                from scripts.vector_db_bench.qwen3_meta.meta_harness_common import run_modal_benchmark  # type: ignore[import-not-found]
+            modal_script_path = Path(str(config.get("modal_script_path", "")))
+            if not modal_script_path.is_file():
+                result = _error(f"modal_script_path not found: {modal_script_path}")
+            else:
+                try:
+                    result = run_modal_benchmark(
+                        workspace=workspace,
+                        modal_script_path=modal_script_path,
+                        bench_root=str(bench_repo),
+                        data_dir=str(data_dir),
+                        max_queries=int(max_queries),
+                        concurrency=int(args.concurrency),
+                        warmup=int(args.warmup),
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    result = _error(str(exc))
+        else:
+            try:
+                benchmark_bin = _ensure_benchmark_binary(bench_repo, runtime)
+                result = runtime["_run_benchmark_like"](
+                    work_dir=workspace,
+                    benchmark_bin=benchmark_bin,
+                    data_dir=data_dir,
+                    cpu_cores=cpu_cores,
+                    concurrency=int(args.concurrency),
+                    warmup=int(args.warmup),
+                    max_queries=int(max_queries),
+                    save_history=True,
+                )
+            except Exception as exc:  # noqa: BLE001
+                result = _error(str(exc))
         _record_tool(meta_dir, tool_state, result)
         _print(result)
         return 0

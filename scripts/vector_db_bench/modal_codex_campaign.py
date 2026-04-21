@@ -37,25 +37,33 @@ import modal
 # Paths
 # ---------------------------------------------------------------------------
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-SCRIPTS_DIR = REPO_ROOT / "scripts" / "vector_db_bench"
-
-_bench_root = os.environ.get("VECTOR_DB_BENCH_ROOT", "").strip()
-if not _bench_root:
-    raise RuntimeError("Set VECTOR_DB_BENCH_ROOT in your .env before running.")
-_bench_path = Path(_bench_root).resolve()
-if not _bench_path.is_dir():
-    raise RuntimeError(f"VECTOR_DB_BENCH_ROOT is not a directory: {_bench_path}")
-
-_data_root = os.environ.get("VECTOR_DB_BENCH_DATA", "").strip()
-_data_path = Path(_data_root).resolve() if _data_root else _bench_path / "data"
-if not _data_path.is_dir():
-    raise RuntimeError(f"Data directory missing: {_data_path}")
-
 REMOTE_BENCH = "/opt/vector-db-bench"
 REMOTE_DATA = "/opt/vdb-data"
 REMOTE_SCRIPTS = "/opt/scripts"
 REMOTE_RUN_ROOT = "/vdb_runs/campaign"
+
+_in_modal_container = bool(os.environ.get("MODAL_TASK_ID", ""))
+
+if not _in_modal_container:
+    REPO_ROOT = Path(__file__).resolve().parents[2]
+    SCRIPTS_DIR = REPO_ROOT / "scripts" / "vector_db_bench"
+
+    _bench_root = os.environ.get("VECTOR_DB_BENCH_ROOT", "").strip()
+    if not _bench_root:
+        raise RuntimeError("Set VECTOR_DB_BENCH_ROOT in your .env before running.")
+    _bench_path = Path(_bench_root).resolve()
+    if not _bench_path.is_dir():
+        raise RuntimeError(f"VECTOR_DB_BENCH_ROOT is not a directory: {_bench_path}")
+
+    _data_root = os.environ.get("VECTOR_DB_BENCH_DATA", "").strip()
+    _data_path = Path(_data_root).resolve() if _data_root else _bench_path / "data"
+    if not _data_path.is_dir():
+        raise RuntimeError(f"Data directory missing: {_data_path}")
+else:
+    REPO_ROOT = Path("/opt")
+    SCRIPTS_DIR = Path(REMOTE_SCRIPTS) / "vector_db_bench"
+    _bench_path = Path(REMOTE_BENCH)
+    _data_path = Path(REMOTE_DATA)
 
 # ---------------------------------------------------------------------------
 # Persistent volume for workspace + run artifacts
@@ -69,35 +77,38 @@ campaign_volume = modal.Volume.from_name("vdb-codex-campaign", create_if_missing
 
 _BENCH_IGNORE = [".git", "target", ".idea", ".vscode", "data"]
 
-image = (
-    modal.Image.debian_slim(python_version="3.11")
-    .apt_install(
-        "curl",
-        "ca-certificates",
-        "build-essential",
-        "pkg-config",
-        "libssl-dev",
-        "clang",
-        "git",
-        "nodejs",
-        "npm",
+if not _in_modal_container:
+    image = (
+        modal.Image.debian_slim(python_version="3.11")
+        .apt_install(
+            "curl",
+            "ca-certificates",
+            "build-essential",
+            "pkg-config",
+            "libssl-dev",
+            "clang",
+            "git",
+            "nodejs",
+            "npm",
+        )
+        .run_commands(
+            # Rust toolchain
+            'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable',
+            "bash -lc 'source /root/.cargo/env && rustc --version && cargo --version'",
+            # Codex CLI
+            "npm install -g @openai/codex",
+            "codex --version",
+        )
+        .env({
+            "PATH": "/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            "RUST_BACKTRACE": "1",
+        })
+        .add_local_dir(str(_bench_path), remote_path=REMOTE_BENCH, ignore=_BENCH_IGNORE)
+        .add_local_dir(str(_data_path), remote_path=REMOTE_DATA)
+        .add_local_dir(str(SCRIPTS_DIR), remote_path=f"{REMOTE_SCRIPTS}/vector_db_bench")
     )
-    .run_commands(
-        # Rust toolchain
-        'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable',
-        "bash -lc 'source /root/.cargo/env && rustc --version && cargo --version'",
-        # Codex CLI
-        "npm install -g @openai/codex",
-        "codex --version",
-    )
-    .env({
-        "PATH": "/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-        "RUST_BACKTRACE": "1",
-    })
-    .add_local_dir(str(_bench_path), remote_path=REMOTE_BENCH, ignore=_BENCH_IGNORE)
-    .add_local_dir(str(_data_path), remote_path=REMOTE_DATA)
-    .add_local_dir(str(SCRIPTS_DIR), remote_path=f"{REMOTE_SCRIPTS}/vector_db_bench")
-)
+else:
+    image = modal.Image.debian_slim(python_version="3.11")
 
 app = modal.App("vdb-codex-campaign")
 

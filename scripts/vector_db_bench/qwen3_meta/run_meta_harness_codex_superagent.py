@@ -776,6 +776,13 @@ def _log(message: str) -> None:
     print(message, flush=True)
 
 
+def _tail_text(value: str, limit: int = 2000) -> str:
+    value = value.strip()
+    if len(value) <= limit:
+        return value
+    return value[-limit:]
+
+
 def main() -> int:
     args = parse_args()
     load_dotenv(args.dotenv_path)
@@ -897,6 +904,19 @@ def main() -> int:
                 f"[cycle {cycle_index:03d}] codex_done returncode={codex_result.returncode} "
                 f"runtime_seconds={codex_result.runtime_seconds:.2f}"
             )
+            if codex_result.returncode != 0:
+                stderr_tail = _tail_text(codex_result.stderr)
+                if stderr_tail:
+                    _log(f"[cycle {cycle_index:03d}] codex_stderr_tail:\n{stderr_tail}")
+                elif codex_result.timed_out:
+                    _log(f"[cycle {cycle_index:03d}] codex timed out without stderr output")
+                else:
+                    _log(f"[cycle {cycle_index:03d}] codex failed without stderr output")
+                if codex_result.last_message.strip():
+                    _log(
+                        f"[cycle {cycle_index:03d}] codex_last_message_tail:\n"
+                        f"{_tail_text(codex_result.last_message)}"
+                    )
             write_json(
                 outputs_root / f"cycle_{cycle_index:03d}_exec.json",
                 {

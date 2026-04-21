@@ -20,6 +20,13 @@ Usage:
   # custom cycles / model:
   modal run scripts/vector_db_bench/modal_codex_campaign.py \\
     --cycles 40 --codex-model o4-mini
+
+  # interactive shell with the same image + volume for `codex login`:
+  modal shell scripts/vector_db_bench/modal_codex_campaign.py::run_campaign --pty
+
+This wrapper is the right entrypoint when Codex itself should run on Modal.
+Do not run the inner superagent with `--modal-eval` from inside Modal, because
+that nests `modal run` inside a Modal container.
 """
 
 from __future__ import annotations
@@ -27,6 +34,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -41,11 +49,32 @@ REMOTE_BENCH = "/opt/vector-db-bench"
 REMOTE_DATA = "/opt/vdb-data"
 REMOTE_SCRIPTS = "/opt/scripts"
 REMOTE_RUN_ROOT = "/vdb_runs/campaign"
+REMOTE_CODEX_HOME = "/vdb_runs/codex_home"
 
 _in_modal_container = bool(os.environ.get("MODAL_TASK_ID", ""))
 
+
+def _load_local_dotenv(path: Path) -> None:
+    if not path.is_file():
+        return
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :].strip()
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if not key or key in os.environ:
+            continue
+        os.environ[key] = value.strip().strip("'").strip('"')
+
+
 if not _in_modal_container:
     REPO_ROOT = Path(__file__).resolve().parents[2]
+    _load_local_dotenv(REPO_ROOT / ".env")
     SCRIPTS_DIR = REPO_ROOT / "scripts" / "vector_db_bench"
 
     _bench_root = os.environ.get("VECTOR_DB_BENCH_ROOT", "").strip()
@@ -102,6 +131,7 @@ if not _in_modal_container:
         .env({
             "PATH": "/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
             "RUST_BACKTRACE": "1",
+            "CODEX_HOME": REMOTE_CODEX_HOME,
         })
         .add_local_dir(str(_bench_path), remote_path=REMOTE_BENCH, ignore=_BENCH_IGNORE)
         .add_local_dir(str(_data_path), remote_path=REMOTE_DATA)
@@ -112,6 +142,51 @@ else:
 
 app = modal.App("vdb-codex-campaign")
 
+
+def _require_codex_auth(env: dict[str, str]) -> None:
+    if env.get("OPENAI_API_KEY", "").strip() or env.get("ANTHROPIC_API_KEY", "").strip():
+        return
+    raise RuntimeError(
+        "Modal container is missing Codex auth. Set OPENAI_API_KEY or ANTHROPIC_API_KEY in .env "
+        "or attach a Modal secret that exposes one of those env vars."
+    )
+
+
+def _stream_subprocess(argv: list[str], *, env: dict[str, str]) -> dict[str, Any]:
+    stdout_lines: list[str] = []
+    stderr_lines: list[str] = []
+    proc = subprocess.Popen(
+        argv,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+    )
+
+    def _pump(stream: Any, sink: list[str], target: Any) -> None:
+        try:
+            for line in iter(stream.readline, ""):
+                sink.append(line)
+                print(line, end="", file=target, flush=True)
+        finally:
+            stream.close()
+
+    stdout_thread = threading.Thread(target=_pump, args=(proc.stdout, stdout_lines, sys.stdout), daemon=True)
+    stderr_thread = threading.Thread(target=_pump, args=(proc.stderr, stderr_lines, sys.stderr), daemon=True)
+    stdout_thread.start()
+    stderr_thread.start()
+    returncode = proc.wait()
+    stdout_thread.join()
+    stderr_thread.join()
+    stdout = "".join(stdout_lines)
+    stderr = "".join(stderr_lines)
+    return {
+        "returncode": returncode,
+        "stdout_tail": stdout[-4000:],
+        "stderr_tail": stderr[-4000:],
+    }
+
 # ---------------------------------------------------------------------------
 # Campaign function
 # ---------------------------------------------------------------------------
@@ -119,7 +194,7 @@ app = modal.App("vdb-codex-campaign")
 @app.function(
     image=image,
     volumes={"/vdb_runs": campaign_volume},
-    secrets=[modal.Secret.from_dotenv(str(REPO_ROOT / ".env")), modal.Secret.from_name("openai-key", required=False)],
+    secrets=[modal.Secret.from_dotenv(str(REPO_ROOT / ".env"))],
     timeout=86400,  # 24 hours; re-run to resume if campaign exceeds this
     cpu=4.0,
     memory=16384,
@@ -135,7 +210,11 @@ def run_campaign(
     import os
 
     env = os.environ.copy()
+    Path(REMOTE_CODEX_HOME).mkdir(parents=True, exist_ok=True)
+    env["CODEX_HOME"] = REMOTE_CODEX_HOME
     env["PYTHONPATH"] = f"{REMOTE_SCRIPTS}/vector_db_bench/qwen3_meta:" + env.get("PYTHONPATH", "")
+    if not (Path(REMOTE_CODEX_HOME) / "auth.json").exists():
+        _require_codex_auth(env)
 
     script = f"{REMOTE_SCRIPTS}/vector_db_bench/qwen3_meta/run_meta_harness_codex_superagent.py"
 
@@ -157,8 +236,7 @@ def run_campaign(
         argv += ["--codex-model", codex_model]
 
     print(f"[campaign] starting: {' '.join(argv)}", flush=True)
-    result = subprocess.run(argv, env=env)
-    return {"returncode": result.returncode}
+    return _stream_subprocess(argv, env=env)
 
 
 # ---------------------------------------------------------------------------

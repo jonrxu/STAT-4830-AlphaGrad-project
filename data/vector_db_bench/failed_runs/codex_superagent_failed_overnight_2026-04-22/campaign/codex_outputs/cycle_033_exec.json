@@ -1,0 +1,26 @@
+{
+  "argv": [
+    "/usr/local/bin/codex",
+    "exec",
+    "--ephemeral",
+    "--skip-git-repo-check",
+    "--color",
+    "never",
+    "--json",
+    "--sandbox",
+    "danger-full-access",
+    "-C",
+    "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace",
+    "--output-last-message",
+    "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/codex_outputs/cycle_033_last_message.txt",
+    "--enable",
+    "web_search_request",
+    "-"
+  ],
+  "events_path": "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/codex_outputs/cycle_033_events.jsonl",
+  "last_message": "**Changed**\n\n[db.rs](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/src/db.rs:1) now has an opt-in `VDB_ENABLE_U8_ROUTING=1` ANN branch that quantizes primary centroids and routes both primary and secondary stages in `u8`. I also extended [measure_ann_benchmark](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/measure_ann_benchmark:1), [sweep_ann_benchmark](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/sweep_ann_benchmark:1), [measure_ann_search_only](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/measure_ann_search_only:1), and [sweep_ann_search_only](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/sweep_ann_search_only:1) with explicit `u8` routing flags, plus a new `--fast` exact ANN mode that skips the expensive stats wrapper. I recorded the cycle in [campaign_journal.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/campaign_journal.md:1), [research_notes.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/research_notes.md:1), [strategy.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/strategy.md:1), and [tools/README.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/README.md:1).\n\nOn the fast exact ANN gate at the current `14 / 136 / 480` point, the explicit-off baseline was `4753.84 QPS` at `0.9522` recall, and explicit `VDB_ENABLE_U8_ROUTING=1` runs reached `5103.37` and `5161.11 QPS` at `0.9520` recall. A stats-enabled exact run showed route time dropping to about `153.54 us` from the prior `~174.74 us` band. I did not leave it default-on because repeated no-env exact runs did not reproduce the explicit-env result cleanly.\n\n**Current Score**\n\nThe default scored path is still valid but not improved this cycle. `build_project` succeeded, `run_correctness_test` passed at `1.0000` recall, and a fresh quick `run_benchmark` measured `10800.03 QPS`, so the honest external expectation is still the same noisy roughly `11k-13k` cache-path band, not a promotion-grade step toward `22000+`.\n\nNext best move: root-cause why explicit `VDB_ENABLE_U8_ROUTING=1` beats the no-env fallback so reliably, then use that branch as the base for the next geometry or pruning sweep. The new `measure_ann_benchmark --fast` path makes that iteration much cheaper.",
+  "returncode": 0,
+  "runtime_seconds": 1698.8328325748444,
+  "stderr": "",
+  "timed_out": false
+}

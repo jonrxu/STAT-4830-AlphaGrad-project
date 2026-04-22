@@ -1,0 +1,17 @@
+**Changed**
+
+- Updated the ANN fallback defaults in [src/db.rs](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/src/db.rs:1) from `14 / 136 / 480` to `14 / 138 / 416`, based on a clean exact fast sweep where that point was best at `5529.23 QPS`, `0.9532` recall.
+- Re-ran the old `u8` routing idea and it did not reproduce a win on this workspace, so I left it non-default.
+- Tried combining flat `cluster_prune` with vector-radius pruning in Rust; it regressed on the exact gate and I reverted it.
+- Extended the sweep wrappers to expose vector-radius A/B flags in [sweep_ann_benchmark](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/sweep_ann_benchmark:1) and [sweep_ann_search_only](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/sweep_ann_search_only:1).
+- Updated the persistent notes in [.meta_codex/campaign_journal.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/campaign_journal.md:1), [.meta_codex/research_notes.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/research_notes.md:1), [.meta_codex/strategy.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/strategy.md:1), and [.meta_codex/tools/README.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/README.md:1).
+
+**Current Expectation**
+
+`build_project` succeeded. `run_correctness_test` passed at `1.0000` recall, and a fresh official quick `run_benchmark` reached `11517.02 QPS`, so the scored path remains valid but still well below the target.
+
+For ANN, the best clean exact sweep point this cycle was `14 / 138 / 416` at `5529.23 QPS`, `0.9532` recall. A fresh no-env exact fast run on the kept defaults landed at `5090.79 QPS`, `0.9532` recall. I did not run a full official benchmark this cycle.
+
+**Next Best Move**
+
+Use the exact fast gate to sweep a slightly wider flat region around the new point, not more prune-composition experiments: `cluster_probe 138-144` and smaller prescore budgets around `352-448`. If that plateaus, the next real move is a stronger routing layer or true extra shortlist stage, not more mixing of the current weak cluster/radius prune signals.

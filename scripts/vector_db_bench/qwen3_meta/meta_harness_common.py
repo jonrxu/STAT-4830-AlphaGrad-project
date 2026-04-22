@@ -53,6 +53,9 @@ RESULT_COLUMNS = [
 WORKER_READABLE_ROOTS = ("src", "benchmarks", "profiling")
 WORKER_READABLE_FILES = ("Cargo.toml",)
 
+_PROTECTED_SKELETON_PATHS: frozenset[str] = frozenset({"src/api.rs", "src/main.rs"})
+_EDITABLE_SKIP_DIRS: frozenset[str] = frozenset({".git", "target", ".idea", ".vscode", ".meta_codex"})
+
 
 @dataclass(frozen=True)
 class RevisionConfig:
@@ -96,6 +99,109 @@ class AttemptOutcome:
     elapsed_secs: float
     work_dir: str
     notes: str
+
+
+def read_editable_files(workspace: Path) -> dict[str, str]:
+    """Read all editable skeleton files per CONTRACT.md rules.
+
+    Includes all *.rs (except protected paths), Cargo.toml, and build.rs.
+    Skips target/, .git/, .meta_codex/, and other non-source dirs.
+    """
+    files: dict[str, str] = {}
+    for path in sorted(workspace.rglob("*")):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(workspace)
+        parts = rel.parts
+        if any(part in _EDITABLE_SKIP_DIRS for part in parts[:-1]):
+            continue
+        rel_posix = rel.as_posix()
+        if rel_posix in _PROTECTED_SKELETON_PATHS:
+            continue
+        name = parts[-1]
+        if not (name.endswith(".rs") or name == "Cargo.toml" or name == "build.rs"):
+            continue
+        files[rel_posix] = path.read_text(encoding="utf-8")
+    return files
+
+
+def run_modal_benchmark(
+    *,
+    workspace: Path,
+    modal_script_path: Path,
+    bench_root: str,
+    data_dir: str,
+    max_queries: int = 0,
+    concurrency: int = 4,
+    warmup: int = 100,
+    timeout: int = 60 * 50,
+) -> dict[str, Any]:
+    """Serialize workspace editable files and evaluate remotely via modal_vdb_eval.py.
+
+    Returns a dict shaped like _run_benchmark_like: {"type": "RunBenchmark", ...}
+    or {"type": "Error", "message": ...} on failure.
+    """
+    import tempfile
+
+    files = read_editable_files(workspace)
+    if not files:
+        return {"type": "Error", "message": "no editable files found in workspace"}
+
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".json", delete=False, encoding="utf-8"
+    ) as tmp:
+        json.dump(files, tmp)
+        tmp_path = tmp.name
+
+    try:
+        env = os.environ.copy()
+        env["VECTOR_DB_BENCH_ROOT"] = bench_root
+        if data_dir:
+            env["VECTOR_DB_BENCH_DATA"] = data_dir
+
+        cmd = [
+            "modal", "run",
+            f"{modal_script_path}::main",
+            "--candidate-json", tmp_path,
+            "--concurrency", str(concurrency),
+            "--warmup", str(warmup),
+            "--max-queries", str(max_queries),
+        ]
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=env,
+        )
+        if proc.returncode != 0:
+            return {
+                "type": "Error",
+                "message": f"modal run failed (rc={proc.returncode})",
+                "stderr": (proc.stderr or "")[-4000:],
+                "stdout_tail": (proc.stdout or "")[-2000:],
+            }
+        try:
+            result = json.loads(proc.stdout)
+        except json.JSONDecodeError as exc:
+            return {
+                "type": "Error",
+                "message": f"failed to parse modal output: {exc}",
+                "stdout_tail": (proc.stdout or "")[-4000:],
+            }
+        if not isinstance(result, dict):
+            return {"type": "Error", "message": "modal output was not a JSON object"}
+        if "error" in result:
+            return {"type": "Error", "message": str(result["error"]), **{k: v for k, v in result.items() if k != "type"}}
+        payload = result.get("payload", {})
+        bench = payload.get("benchmark", {}) if isinstance(payload, dict) else {}
+        if not bench:
+            return {"type": "Error", "message": "no benchmark data in modal response", "raw": result}
+        return {"type": "RunBenchmark", **bench}
+    except subprocess.TimeoutExpired:
+        return {"type": "Error", "message": f"modal benchmark timed out after {timeout}s"}
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
 
 
 def load_dotenv(path: Path) -> list[str]:

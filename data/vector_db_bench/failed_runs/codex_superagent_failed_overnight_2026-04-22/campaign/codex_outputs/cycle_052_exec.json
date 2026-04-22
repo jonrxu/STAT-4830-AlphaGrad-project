@@ -1,0 +1,26 @@
+{
+  "argv": [
+    "/usr/local/bin/codex",
+    "exec",
+    "--ephemeral",
+    "--skip-git-repo-check",
+    "--color",
+    "never",
+    "--json",
+    "--sandbox",
+    "danger-full-access",
+    "-C",
+    "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace",
+    "--output-last-message",
+    "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/codex_outputs/cycle_052_last_message.txt",
+    "--enable",
+    "web_search_request",
+    "-"
+  ],
+  "events_path": "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/codex_outputs/cycle_052_events.jsonl",
+  "last_message": "Changed the ANN branch, not the scored default path. I added experimental leaf-supercluster routing in `src/db.rs` behind `VDB_ENABLE_LEAF_SUPERCLUSTER_ROUTING`, plus harness support in `.meta_codex/tools/measure_ann_search_only`, `measure_ann_benchmark`, `sweep_ann_search_only`, and `sweep_ann_benchmark`. The branch builds a second routing k-means layer over the existing leaf centroids, which is closer to real super-cluster routing than another bare geometry sweep. I also recorded the outcome in `.meta_codex/strategy.md`, `.meta_codex/research_notes.md`, `.meta_codex/campaign_journal.md`, `.meta_codex/tools/README.md`, and `.meta_codex/recent_cycles/cycle_052.json`.\n\nThe new routing family is locally alive but not exact-promotable yet. On the primed local `300`-query gate, `24 / 144 / 416` improved from about `4914.48 QPS / 0.9560 recall` flat to about `5249.04 / 0.9557` with leaf-supercluster routing. But the fast exact `200`-query ANN check came in slightly worse than the same-point flat baseline: about `4028.16 QPS / 0.9675` versus `4073.65 / 0.9675`. Official scored-path validation stayed correct with a clean serial correctness pass at `1.0000` recall; quick benchmark samples this cycle were only about `9087.97` and `10019.51` QPS, so current score expectation is low-`10k` quick and not a best-state threat.\n\nNext best move is a tight exact `200`-query culling sweep around the new routing branch, especially higher `primary_probe` with lower `cluster_probe` or smaller prescore, and only pay the `1000`-query exact gate if one of those points clearly beats the same-point flat route first.",
+  "returncode": 0,
+  "runtime_seconds": 1303.4928560256958,
+  "stderr": "2026-04-22T10:07:13.875842Z ERROR codex_core::tools::router: error=write_stdin failed: stdin is closed for this session; rerun exec_command with tty=true to keep stdin open\n",
+  "timed_out": false
+}

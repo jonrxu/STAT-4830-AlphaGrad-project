@@ -1,0 +1,26 @@
+{
+  "argv": [
+    "/usr/local/bin/codex",
+    "exec",
+    "--ephemeral",
+    "--skip-git-repo-check",
+    "--color",
+    "never",
+    "--json",
+    "--sandbox",
+    "danger-full-access",
+    "-C",
+    "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace",
+    "--output-last-message",
+    "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/codex_outputs/cycle_023_last_message.txt",
+    "--enable",
+    "web_search_request",
+    "-"
+  ],
+  "events_path": "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/codex_outputs/cycle_023_events.jsonl",
+  "last_message": "Changed [src/server.rs](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/src/server.rs:31) to add a dormant local-only knob, `VDB_EARLY_CACHED_SEARCH_PARTIAL_READ_BYTES`, so cached `/search` requests can be forced onto the early-header path for exact transport experiments without changing the scored default. Added [sweep_official_breakdown](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/sweep_official_breakdown:1) and documented it in [tools/README.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/README.md:1); it serially sweeps an env-gated knob against the exact official benchmark breakdown wrapper and summarizes QPS plus cached-search hit stats. I also updated [strategy.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/strategy.md:1), [research_notes.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/research_notes.md:173), and [campaign_journal.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/campaign_journal.md:198).\n\nValidation stayed official. `build_project` passed, and `run_correctness_test` still passed at `1.0000` recall. A fresh exact default quick breakdown was `12010.41 QPS` with `1100` fully buffered fast hits and `0` early hits. Forcing early hits was a clean loss: `VDB_EARLY_CACHED_SEARCH_PARTIAL_READ_BYTES=256` dropped to `10312.16 QPS`, and `512` dropped to `8780.07 QPS`. Current score expectation is still roughly `~12k` full and low-`13k` quick, so no promotion should be expected from this cycle.\n\nNext best move is to stop spending cycles on dormant early-header transport tricks and pivot the Rust work toward quantized ANN shortlist generation. The public `21.5k` writeups point that way rather than toward more HTTP micro-tuning: [Lushbinary\u2019s GLM-5.1 summary](https://lushbinary.com/blog/glm-5-1-vectordbbench-6000-tool-calls-21k-qps/) and the [Vector DB Bench leaderboard/report](https://vector-db-bench.kcores.com/).",
+  "returncode": 0,
+  "runtime_seconds": 894.8808135986328,
+  "stderr": "",
+  "timed_out": false
+}

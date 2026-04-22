@@ -1,0 +1,90 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+
+TOOLS_DIR = Path(__file__).resolve().parent
+RUN_BENCHMARK = TOOLS_DIR / "run_benchmark"
+
+
+def main() -> int:
+    if len(sys.argv) > 1 and sys.argv[1] in {"--help", "-h"}:
+        print(
+            "Usage: measure_official_benchmark_breakdown [run_benchmark args...]\n\n"
+            "Runs the official benchmark wrapper with server request stats enabled and emits\n"
+            "a combined JSON report with the official benchmark result plus the final server\n"
+            "request-stats and ANN-stats snapshots from the same run when available."
+        )
+        return 0
+
+    if not RUN_BENCHMARK.is_file():
+        raise SystemExit(f"run_benchmark wrapper not found: {RUN_BENCHMARK}")
+
+    with tempfile.TemporaryDirectory(prefix="official_benchmark_breakdown_") as tmpdir_str:
+        stats_path = Path(tmpdir_str) / "request_stats.json"
+        ann_stats_path = Path(tmpdir_str) / "ann_stats.json"
+        env = os.environ.copy()
+        env["VDB_REQUEST_STATS_PATH"] = str(stats_path)
+        env["VDB_ANN_STATS_PATH"] = str(ann_stats_path)
+
+        proc = subprocess.run(
+            [str(RUN_BENCHMARK), *sys.argv[1:]],
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+
+        benchmark = None
+        benchmark_error = None
+        try:
+            benchmark = json.loads(proc.stdout)
+        except json.JSONDecodeError as exc:
+            benchmark_error = f"failed to parse run_benchmark output: {exc}"
+
+        request_stats = None
+        request_stats_error = None
+        if stats_path.is_file():
+            try:
+                request_stats = json.loads(stats_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as exc:
+                request_stats_error = f"failed to parse request stats: {exc}"
+        else:
+            request_stats_error = "request stats file was not created"
+
+        ann_stats = None
+        ann_stats_error = None
+        if ann_stats_path.is_file():
+            try:
+                ann_stats = json.loads(ann_stats_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as exc:
+                ann_stats_error = f"failed to parse ANN stats: {exc}"
+        else:
+            ann_stats_error = "ANN stats file was not created"
+
+        payload = {
+            "type": "MeasureOfficialBenchmarkBreakdown",
+            "benchmark": benchmark,
+            "benchmark_parse_error": benchmark_error,
+            "request_stats": request_stats,
+            "request_stats_error": request_stats_error,
+            "ann_stats": ann_stats,
+            "ann_stats_error": ann_stats_error,
+        }
+
+        if proc.stderr.strip():
+            payload["benchmark_stderr"] = proc.stderr
+        if proc.returncode != 0:
+            payload["run_benchmark_returncode"] = proc.returncode
+
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return proc.returncode
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

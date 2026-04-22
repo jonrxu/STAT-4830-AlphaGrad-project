@@ -1,0 +1,26 @@
+{
+  "argv": [
+    "/usr/local/bin/codex",
+    "exec",
+    "--ephemeral",
+    "--skip-git-repo-check",
+    "--color",
+    "never",
+    "--json",
+    "--sandbox",
+    "danger-full-access",
+    "-C",
+    "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace",
+    "--output-last-message",
+    "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/codex_outputs/cycle_027_last_message.txt",
+    "--enable",
+    "web_search_request",
+    "-"
+  ],
+  "events_path": "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/codex_outputs/cycle_027_events.jsonl",
+  "last_message": "**Changed**\n- Added a local-only ANN preload path in `src/db.rs`: `VDB_PRELOAD_ANN_BASE=1` now loads the official base directly from `/opt/vdb-data/sift_base.fvecs` for local probes, without touching the official benchmark path.\n- Added a much faster ANN tuning harness: `.meta_codex/tools/measure_ann_search_only` and `.meta_codex/tools/sweep_ann_search_only`, backed by an upgraded `.meta_codex/tools/replay_fast/src/main.rs` that now measures recall against ground truth.\n- Promoted the ANN fallback default from `14 / 136 / 768` to `14 / 136 / 640` after exact validation. I also tried a batched multi-candidate u8/f16 kernel change, but it regressed and was reverted.\n\n**Validation**\n- Exact ANN run for `14 / 136 / 640`: `5191.31 QPS`, `0.9523` recall.\n- New search-only harness on the same point: `6090.71 QPS`, `0.9505` recall.\n- Default scored path stayed official and valid: `run_correctness_test` passed at `1.0000` recall, and a fresh quick `run_benchmark` reached `12233.41 QPS`.\n\n**Expectation**\n- Scored cache-first path is still roughly a `~12k` quick-band solution, valid but nowhere near `22000+`.\n- ANN fallback is now a real `~5.2k` exact point and a `~6.1k` steady-state local point at the current best validated budget.\n\n**Next**\n- Use the new search-only harness to test one stronger structural ANN change before paying exact-wrapper costs: the best next bet is a cheaper shortlist stage inside the selected clusters, or a better-proven routing/pruning change, not another blind micro-kernel rewrite.\n\nPublic-target note: as of **April 22, 2026**, the live Vector DB Bench site snippet shows a top public leaderboard result around `3989 QPS`, while a separate **April 8, 2026** long-horizon writeup cites a `21.5k QPS` result. I did not change benchmark rules and kept the workspace aligned to the campaign\u2019s `22000` target. Sources: https://vector-db-bench.kcores.com/ and https://lushbinary.com/blog/glm-5-1-vectordbbench-6000-tool-calls-21k-qps/",
+  "returncode": 0,
+  "runtime_seconds": 1605.1132190227509,
+  "stderr": "2026-04-22T01:21:29.033874Z ERROR codex_core::tools::router: error=apply_patch verification failed: Failed to find expected lines in /__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/research_notes.md:\nCycle 25 findings:\n- Replaced the cache-heavy LUT-based u8 prescore loop with direct AVX2 byte-distance scoring in `src/distance.rs`, and added an AVX/F16C rerank kernel for `f16` vectors. The ANN fallback path is now using real SIMD on both shortlist stages instead of scalar table lookups plus scalar half conversion.\n- That kernel rewrite transferred immediately to exact official ANN measurements. For the old conservative ANN setting (`14 / 160 / 2048`), the exact `200`-query run improved from about `1419.12` to `3022.32 QPS` at the same `0.9730` recall, and the full quick benchmark improved from `1372.23` to `2923.41 QPS` at the same `0.9598` recall.\n- With the new inner loop in place, budget trims started to pay off honestly. Valid full-quick ANN points this cycle included `14 / 160 / 1536` at `3293.43 QPS`, `0.9598`; `14 / 144 / 1536` at `3437.22`, `0.9540`; `14 / 144 / 1280` at `3452.19`, `0.9541`; `14 / 140 / 1280` at `3942.52`, `0.9528`; and the best validated point, `14 / 136 / 1280`, at `4067.00 QPS`, `0.9509`.\n",
+  "timed_out": false
+}

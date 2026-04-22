@@ -1,0 +1,217 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import socket
+import subprocess
+import tempfile
+import threading
+import time
+from pathlib import Path
+
+
+BENCHMARK_BIN = Path("/opt/vector-db-bench/benchmark/target/release/vector-db-benchmark")
+
+
+def make_vector(seed: int) -> list[float]:
+    return [((seed * 17 + dim * 13) % 101) / 100.0 for dim in range(128)]
+
+
+def compact_preview(body: bytes, limit: int = 160) -> str:
+    preview = body[:limit].decode("utf-8", errors="replace")
+    return preview.replace("\r", "\\r").replace("\n", "\\n")
+
+
+def parse_one_request(buffer: bytearray):
+    header_end = buffer.find(b"\r\n\r\n")
+    if header_end < 0:
+        return None
+
+    headers = bytes(buffer[:header_end])
+    body_start = header_end + 4
+    content_length = None
+    for line in headers.split(b"\r\n")[1:]:
+        name, _, value = line.partition(b":")
+        if name.lower() == b"content-length":
+            content_length = int(value.strip() or b"0")
+            break
+
+    if content_length is None:
+        raise RuntimeError("missing content-length")
+
+    body_end = body_start + content_length
+    if len(buffer) < body_end:
+        return None
+
+    raw = bytes(buffer[:body_end])
+    del buffer[:body_end]
+    request_line = headers.split(b"\r\n", 1)[0].decode("ascii", errors="replace")
+    return {
+        "request_line": request_line,
+        "headers": headers.decode("latin1", errors="replace"),
+        "body": raw[body_start:body_end],
+        "raw": raw,
+        "content_length": content_length,
+        "header_length": body_start,
+    }
+
+
+def response_bytes(path: str) -> bytes:
+    if path == "/bulk_insert":
+        body = b'{"status":"ok","inserted":1}'
+    else:
+        body = b'{"results":[{"id":0,"distance":0}]}'
+    return (
+        b"HTTP/1.1 200 OK\r\n"
+        + f"Content-Length: {len(body)}\r\n\r\n".encode("ascii")
+        + body
+    )
+
+
+def handle_connection(
+    conn: socket.socket,
+    addr: tuple[str, int],
+    connection_id: int,
+    captured: list[dict],
+    stop: threading.Event,
+) -> None:
+    buffer = bytearray()
+    try:
+        while not stop.is_set():
+            chunk = conn.recv(65536)
+            if not chunk:
+                return
+            buffer.extend(chunk)
+            while True:
+                parsed = parse_one_request(buffer)
+                if parsed is None:
+                    break
+                parsed["connection_id"] = connection_id
+                parsed["client_addr"] = f"{addr[0]}:{addr[1]}"
+                captured.append(parsed)
+                path = parsed["request_line"].split(" ")[1]
+                conn.sendall(response_bytes(path))
+    finally:
+        conn.close()
+
+
+def run_server(port: int, captured: list[dict], stop: threading.Event) -> threading.Thread:
+    def worker() -> None:
+        next_connection_id = 1
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
+            server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            server.bind(("127.0.0.1", port))
+            server.listen()
+            server.settimeout(0.2)
+            while not stop.is_set():
+                try:
+                    conn, addr = server.accept()
+                except TimeoutError:
+                    continue
+                connection_id = next_connection_id
+                next_connection_id += 1
+                thread = threading.Thread(
+                    target=handle_connection,
+                    args=(conn, addr, connection_id, captured, stop),
+                    daemon=True,
+                )
+                thread.start()
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+    return thread
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--warmup", type=int, default=1)
+    parser.add_argument("--queries", type=int, default=1)
+    parser.add_argument("--concurrency", type=int, default=1)
+    parser.add_argument("--batch-size", type=int, default=1)
+    args = parser.parse_args()
+
+    if not BENCHMARK_BIN.is_file():
+        raise SystemExit(f"benchmark binary not found: {BENCHMARK_BIN}")
+
+    with tempfile.TemporaryDirectory(prefix="capture_request_shapes_") as tmpdir:
+        tmp = Path(tmpdir)
+        base_vectors = [{"id": 0, "vector": make_vector(1)}]
+        query_vectors = [{"id": 0, "vector": make_vector(2)}]
+        ground_truth = [{"query_id": 0, "neighbors": [0]}]
+
+        base_path = tmp / "base_vectors.json"
+        query_path = tmp / "query_vectors.json"
+        truth_path = tmp / "ground_truth.json"
+        base_path.write_text(json.dumps(base_vectors), encoding="utf-8")
+        query_path.write_text(json.dumps(query_vectors), encoding="utf-8")
+        truth_path.write_text(json.dumps(ground_truth), encoding="utf-8")
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind(("127.0.0.1", 0))
+            port = sock.getsockname()[1]
+
+        captured: list[dict] = []
+        stop = threading.Event()
+        server_thread = run_server(port, captured, stop)
+        time.sleep(0.1)
+
+        cmd = [
+            str(BENCHMARK_BIN),
+            "--server-url",
+            f"http://127.0.0.1:{port}",
+            "--concurrency",
+            str(args.concurrency),
+            "--warmup",
+            str(args.warmup),
+            "--batch-size",
+            str(args.batch_size),
+            "--max-queries",
+            str(args.queries),
+            "--base-vectors",
+            str(base_path),
+            "--query-vectors",
+            str(query_path),
+            "--ground-truth",
+            str(truth_path),
+            "--recall-threshold",
+            "0.0",
+        ]
+
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        stop.set()
+        server_thread.join(timeout=1)
+
+        print(f"returncode={proc.returncode}")
+        if proc.stderr:
+            print("stderr:")
+            print(proc.stderr.strip())
+        if proc.stdout:
+            print("stdout:")
+            print(proc.stdout.strip())
+
+        print(f"captured_requests={len(captured)}")
+        for idx, request in enumerate(captured, start=1):
+            line = request["request_line"]
+            path = line.split(" ")[1]
+            print(f"==== request {idx}: {line} ====")
+            print(
+                f"connection_id={request['connection_id']} client_addr={request['client_addr']}"
+            )
+            print(f"header_length={request['header_length']} content_length={request['content_length']}")
+            print(request["headers"])
+            print(f"body_preview={compact_preview(request['body'])}")
+            if path == "/search":
+                print(f"search_body_len={len(request['body'])}")
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

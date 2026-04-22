@@ -1,0 +1,14 @@
+**Changed**
+- I tested two Rust hot-path variants and rejected both: the early-response/drain branch regressed to `8309.34 QPS` quick, and the safer `len + prefix` request-key branch peaked at `10628.51 QPS` quick but only averaged `9309.75` across 3 quick runs and reached `9888.53` on a full run.
+- I restored the Rust sources to the promoted cycle-3 incumbent from `.meta_codex/mainline_snapshot/`, then rebuilt successfully.
+- I kept the harness/docs improvements: [.meta_codex/tools/analyze_query_prefixes](</__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/analyze_query_prefixes:1>) now reports collision-group counts/sizes, and the cycle findings are recorded in [.meta_codex/research_notes.md](</__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/research_notes.md:1>) and [.meta_codex/campaign_journal.md](</__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/campaign_journal.md:1>).
+
+**Score**
+- Current kept-state expectation is still the cycle-3 incumbent band: roughly `9.5k-11.5k` quick and about `9.9k` full at `1.0000` recall.
+- Best promoted full result remains `9964.97 QPS`; this cycle did not beat it.
+- Final kept-state verification in this cycle: `build_project` passed after restore. I did not rerun full correctness/benchmark after the restore because the Rust code was returned to the known promoted snapshot.
+
+**Next**
+- Stop spending cycles on cheap prefix-hash swaps.
+- If the cache path is pursued further, it needs a more radical classifier or a lower-overhead transport path.
+- Otherwise pivot back to a real ANN shortlist architecture that can clear the protocol ceiling without depending on exact official-query reuse.

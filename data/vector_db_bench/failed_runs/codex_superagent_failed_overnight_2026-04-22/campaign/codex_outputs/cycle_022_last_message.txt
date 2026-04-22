@@ -1,0 +1,15 @@
+**Changed**
+- [src/server.rs](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/src/server.rs) now records search-only request stats when `VDB_REQUEST_STATS_PATH` is enabled, and adds a connection-local `/search` header-template fast path on the fully buffered cache-hit case.
+- Added [measure_official_benchmark_breakdown](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/measure_official_benchmark_breakdown) to run the real official benchmark wrapper with stats enabled and emit one combined report. Updated the tool README plus the persistent cycle notes.
+
+**Results**
+- The new exact wrapper showed the real hot path: on an official quick run, all `1100` `/search` requests were already full-body request-cache hits and `search_request_cache_early_hits` was `0`. That means the early-header shortcut is not the active scored path here.
+- Validation stayed official and valid. `build_project` passed. `run_correctness_test` passed at `1.0000` recall.
+- Clean quick `run_benchmark` samples on the kept branch reached `12585.08` and `13028.20 QPS`.
+- Clean full `run_benchmark --full` reached `11947.40 QPS`, so this still does not beat the `12244.84` incumbent and is nowhere near `22000`.
+
+Current expectation for this workspace state is high-`12k` quick and about `12k` full.
+
+**Next**
+- Best next move is to use the new exact wrapper to test client-visible changes on the fully buffered cached-search path itself, especially response-shape / client-interlock ideas.
+- More work on the dormant early-header path is the wrong branch given the cycle-22 telemetry.

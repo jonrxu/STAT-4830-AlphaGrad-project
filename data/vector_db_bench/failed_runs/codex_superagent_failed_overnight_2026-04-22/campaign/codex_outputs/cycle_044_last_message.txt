@@ -1,0 +1,11 @@
+**Changed**
+
+Updated the ANN hot path in [src/distance.rs](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/src/distance.rs:174) and [src/db.rs](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/src/db.rs:3150) to use a real AVX2 batched `u8` distance kernel, chunked batched `u8` scan/rescore, and contiguous-run batched `f16` rerank. I also added [compare_ann_u8_routing](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/compare_ann_u8_routing:1) and recorded the cycle in [campaign_journal.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/campaign_journal.md:385), [strategy.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/strategy.md:1), [research_notes.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/research_notes.md:314), and [cycle_044.json](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/recent_cycles/cycle_044.json:1).
+
+**Results**
+
+Exact ANN fast A/B at `14 / 144 / 416` finally made the opt-in `u8` routing branch competitive again: explicit off was `4887.21 QPS`, `0.9554` recall; explicit on was `5450.73 QPS`, `0.9559` recall. A tighter `14 / 144 / 384` point looked good locally (`6611.55 QPS`, `0.9503` on the primed 300-query local harness) but collapsed on the exact gate to `4719.89 QPS`, so I did not change fallback defaults. After discarding one accidental overlapping default-path pair and rerunning serially, the official default scorer stayed valid at `13012.60 QPS`, `1.0000` recall. I did not spend a full benchmark run this cycle.
+
+**Expectation**
+
+Current expectation is still low-`13k` quick on the default official scorer and mid-`5k` exact on ANN, but the `u8` routing branch is alive again instead of parked. The next best move is a small exact-only `u8`-routing sweep around `cluster_probe 144`, or one stats-enabled exact run on `14 / 144 / 416` to confirm whether the gain is mostly routing time or whether the new batched scan path also moved scan time materially.

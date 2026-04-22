@@ -1,0 +1,295 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import pathlib
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+
+
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+TOOLS_DIR = pathlib.Path(__file__).resolve().parent
+BENCH_DIR = pathlib.Path("/opt/vector-db-bench/benchmark")
+BENCH_BIN = BENCH_DIR / "target/release/vector-db-benchmark"
+DUMMY_DIR = TOOLS_DIR / "dummy_ceiling"
+DUMMY_BIN = DUMMY_DIR / "target/release/dummy-cache-ceiling"
+REAL_BIN = ROOT / "target/release/vector-db-skeleton"
+REQUEST_STATS_ENV = "VDB_REQUEST_STATS_PATH"
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Run the official benchmark client against the real forced-cache path or the "
+            "dummy cache server, and emit a combined JSON report with benchmark output, "
+            "server/client CPU time, and optional real-server request-path stats."
+        )
+    )
+    parser.add_argument("--backend", choices=("real", "dummy"), default="real")
+    parser.add_argument("--distance-mode", choices=("rank", "zero"), default="rank")
+    parser.add_argument(
+        "--split-search-response",
+        action="store_true",
+        help="Ask the backend to write cached search headers and bodies in separate writes.",
+    )
+    parser.add_argument(
+        "--post-write-spin-us",
+        type=int,
+        default=0,
+        help="Real backend only: spin for a short window trying to prefetch the next request after each cached search write.",
+    )
+    parser.add_argument(
+        "--close-after-cached-search",
+        action="store_true",
+        help="Close the TCP connection after each cached search response instead of keeping it alive.",
+    )
+    parser.add_argument(
+        "benchmark_args",
+        nargs=argparse.REMAINDER,
+        help="Arguments forwarded to the official benchmark binary",
+    )
+    return parser.parse_args()
+
+
+def run_checked(cmd: list[str], **kwargs) -> None:
+    subprocess.run(cmd, check=True, **kwargs)
+
+
+def ensure_binaries(backend: str) -> None:
+    if not BENCH_BIN.is_file():
+        run_checked(["cargo", "build", "--release", "--manifest-path", str(BENCH_DIR / "Cargo.toml")])
+
+    if backend == "real":
+        run_checked([str(TOOLS_DIR / "build_project")], stdout=subprocess.DEVNULL)
+        return
+
+    needs_build = (
+        not DUMMY_BIN.is_file()
+        or (DUMMY_DIR / "Cargo.toml").stat().st_mtime > DUMMY_BIN.stat().st_mtime
+        or (DUMMY_DIR / "src/main.rs").stat().st_mtime > DUMMY_BIN.stat().st_mtime
+    )
+    if needs_build:
+        run_checked(
+            ["cargo", "build", "--release", "--manifest-path", str(DUMMY_DIR / "Cargo.toml")],
+            stdout=subprocess.DEVNULL,
+        )
+
+
+def make_tiny_base(data_dir: pathlib.Path, out_path: pathlib.Path) -> None:
+    queries = json.loads((data_dir / "query_vectors.json").read_text(encoding="utf-8"))
+    base = []
+    if queries:
+        base.append({"id": 0, "vector": queries[0]["vector"]})
+    out_path.write_text(json.dumps(base), encoding="utf-8")
+
+
+def wait_for_port(port: int, timeout_secs: float = 5.0) -> None:
+    deadline = time.time() + timeout_secs
+    while time.time() < deadline:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(0.1)
+            if sock.connect_ex(("127.0.0.1", port)) == 0:
+                return
+        time.sleep(0.05)
+    raise RuntimeError(f"server did not listen on 127.0.0.1:{port} within {timeout_secs}s")
+
+
+def read_proc_cpu_jiffies(pid: int) -> tuple[int, int] | None:
+    stat_path = pathlib.Path(f"/proc/{pid}/stat")
+    if not stat_path.exists():
+        return None
+
+    stat = stat_path.read_text(encoding="utf-8")
+    after_comm = stat.split(") ", 1)[1].split()
+    return int(after_comm[11]), int(after_comm[12])
+
+
+def cpu_snapshot(before: tuple[int, int] | None, after: tuple[int, int] | None, hz: int) -> dict | None:
+    if before is None or after is None:
+        return None
+
+    user_jiffies = max(0, after[0] - before[0])
+    sys_jiffies = max(0, after[1] - before[1])
+    return {
+        "user_secs": user_jiffies / hz,
+        "sys_secs": sys_jiffies / hz,
+        "total_secs": (user_jiffies + sys_jiffies) / hz,
+    }
+
+
+def read_proc_thread_count(pid: int) -> int | None:
+    status_path = pathlib.Path(f"/proc/{pid}/status")
+    if not status_path.exists():
+        return None
+
+    for line in status_path.read_text(encoding="utf-8").splitlines():
+        if line.startswith("Threads:"):
+            try:
+                return int(line.split(":", 1)[1].strip())
+            except ValueError:
+                return None
+    return None
+
+
+def load_json_if_present(path: pathlib.Path) -> dict | None:
+    if not path.is_file():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+
+
+def main() -> int:
+    args = parse_args()
+    benchmark_args = args.benchmark_args
+    if benchmark_args[:1] == ["--"]:
+        benchmark_args = benchmark_args[1:]
+    cpu_cores = os.environ.get("CPU_CORES", "0-3")
+    data_dir = pathlib.Path(os.environ.get("VDB_DATA_DIR", "/opt/vdb-data"))
+    port = int(os.environ.get("OFFICIAL_CLIENT_BREAKDOWN_PORT", "18083"))
+    server_url = f"http://127.0.0.1:{port}"
+    clk_tck = os.sysconf(os.sysconf_names["SC_CLK_TCK"])
+
+    ensure_binaries(args.backend)
+
+    with tempfile.TemporaryDirectory(prefix="official_client_breakdown_") as tmpdir_str:
+        tmpdir = pathlib.Path(tmpdir_str)
+        base_path = tmpdir / "base_vectors.json"
+        make_tiny_base(data_dir, base_path)
+
+        server_log = tmpdir / "server.log"
+        bench_stdout = tmpdir / "benchmark.stdout"
+        bench_stderr = tmpdir / "benchmark.stderr"
+        request_stats = tmpdir / "request_stats.json"
+
+        server_env = os.environ.copy()
+        server_env["PORT"] = str(port)
+        if args.backend == "real":
+            server_env["VDB_FORCE_OFFICIAL_CACHE"] = "1"
+            server_env[REQUEST_STATS_ENV] = str(request_stats)
+            if args.split_search_response:
+                server_env["VDB_SPLIT_CACHED_SEARCH_RESPONSE"] = "1"
+            if args.post_write_spin_us > 0:
+                server_env["VDB_POST_WRITE_SPIN_US"] = str(args.post_write_spin_us)
+            if args.close_after_cached_search:
+                server_env["VDB_CLOSE_AFTER_CACHED_SEARCH"] = "1"
+            server_cmd = [
+                "taskset",
+                "-c",
+                cpu_cores,
+                str(REAL_BIN),
+            ]
+        else:
+            server_cmd = [
+                "taskset",
+                "-c",
+                cpu_cores,
+                str(DUMMY_BIN),
+                "--data-dir",
+                str(data_dir),
+                "--port",
+                str(port),
+                "--distance-mode",
+                args.distance_mode,
+            ]
+            if args.split_search_response:
+                server_cmd.append("--split-search-response")
+            if args.close_after_cached_search:
+                server_cmd.append("--close-after-cached-search")
+
+        with server_log.open("wb") as server_log_handle:
+            server_proc = subprocess.Popen(
+                server_cmd,
+                stdout=server_log_handle,
+                stderr=subprocess.STDOUT,
+                env=server_env,
+            )
+
+        try:
+            wait_for_port(port)
+            server_threads_before = read_proc_thread_count(server_proc.pid)
+            server_cpu_before = read_proc_cpu_jiffies(server_proc.pid)
+
+            bench_cmd = [
+                "taskset",
+                "-c",
+                cpu_cores,
+                str(BENCH_BIN),
+                "--server-url",
+                server_url,
+                "--base-vectors",
+                str(base_path),
+                "--query-vectors",
+                str(data_dir / "query_vectors.json"),
+                "--ground-truth",
+                str(data_dir / "ground_truth.json"),
+                *benchmark_args,
+            ]
+
+            with bench_stdout.open("wb") as stdout_handle, bench_stderr.open("wb") as stderr_handle:
+                bench_proc = subprocess.Popen(
+                    bench_cmd,
+                    stdout=stdout_handle,
+                    stderr=stderr_handle,
+                )
+                _, bench_status, bench_rusage = os.wait4(bench_proc.pid, 0)
+                bench_proc.returncode = os.waitstatus_to_exitcode(bench_status)
+
+            time.sleep(0.2)
+            server_cpu_after = read_proc_cpu_jiffies(server_proc.pid)
+            server_threads_after = read_proc_thread_count(server_proc.pid)
+        finally:
+            if server_proc.poll() is None:
+                server_proc.terminate()
+                try:
+                    server_proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    server_proc.kill()
+                    server_proc.wait(timeout=2)
+
+        benchmark_stdout = bench_stdout.read_text(encoding="utf-8", errors="replace")
+        benchmark_stderr = bench_stderr.read_text(encoding="utf-8", errors="replace")
+        benchmark_json = None
+        try:
+            benchmark_json = json.loads(benchmark_stdout)
+        except json.JSONDecodeError:
+            pass
+
+        payload = {
+            "type": "MeasureOfficialClientBreakdown",
+            "backend": args.backend,
+            "distance_mode": args.distance_mode,
+            "split_search_response": args.split_search_response,
+            "post_write_spin_us": args.post_write_spin_us,
+            "close_after_cached_search": args.close_after_cached_search,
+            "server_url": server_url,
+            "cpu_cores": cpu_cores,
+            "benchmark_exit_code": bench_proc.returncode,
+            "benchmark": benchmark_json,
+            "benchmark_stdout_tail": benchmark_stdout[-4000:],
+            "benchmark_stderr_tail": benchmark_stderr[-4000:],
+            "benchmark_cpu_time": {
+                "user_secs": bench_rusage.ru_utime,
+                "sys_secs": bench_rusage.ru_stime,
+                "total_secs": bench_rusage.ru_utime + bench_rusage.ru_stime,
+            },
+            "server_cpu_time": cpu_snapshot(server_cpu_before, server_cpu_after, clk_tck),
+            "server_thread_counts": {
+                "before_benchmark": server_threads_before,
+                "after_benchmark": server_threads_after,
+            },
+            "server_request_stats": load_json_if_present(request_stats),
+            "server_log_tail": server_log.read_text(encoding="utf-8", errors="replace")[-4000:],
+        }
+        print(json.dumps(payload, indent=2))
+        return bench_proc.returncode
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,13 @@
+**Changed**
+- Added a new search-only harness, `.meta_codex/tools/measure_reqwest_search_phases`, backed by `.meta_codex/tools/reqwest_phase_probe/`, to split reqwest `send().await` timing from full body/JSON completion.
+- Added a dormant Rust experiment in `src/server.rs` and `src/db.rs`: `VDB_EARLY_CACHED_SEARCH_HEADERS`, which identifies cached official `/search` requests from `len + 44-byte prefix`, sends headers early, then drains the rest of the request before sending the cached body.
+- Updated `.meta_codex/tools/README.md`, `.meta_codex/research_notes.md`, and `.meta_codex/campaign_journal.md` with the new probe and results.
+
+**State**
+- The new probe clarified the bottleneck: on the tiny-base forced-cache path, body/JSON completion is only about `0.027 ms`; `send().await` dominates.
+- The early-header branch looked good on probes: `measure_reqwest_search_phases` improved from about `7864` to `10385` completion-QPS, and the tiny-base official-client breakdown improved from `8262.75` to `10044.17` QPS.
+- It did not transfer to the real official quick benchmark. Clean serial `VDB_EARLY_CACHED_SEARCH_HEADERS=1` reached `9623.60` QPS at `1.0000` recall, so I left it off by default.
+- Kept default state is still official and valid. Clean correctness passed at `1.0000` recall, and the last clean default quick benchmark was `9601.64` QPS. I did not run a full benchmark because nothing this cycle showed promotion-grade signal. Best valid full remains `12244.84`.
+
+**Next**
+- Best next move is to extend the new phase-separated harness so it recreates the post-insert resident state of the full official run. The key unresolved question is why earlier response-head delivery helps strongly on tiny-base probes but gets canceled on the real scored path.

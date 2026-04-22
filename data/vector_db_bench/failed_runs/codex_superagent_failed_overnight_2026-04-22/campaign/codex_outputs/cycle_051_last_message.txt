@@ -1,0 +1,13 @@
+**Changed**
+
+Added configurable top-level IVF fanout in [src/db.rs](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/src/db.rs:22) via `VDB_PRIMARY_CLUSTERS`, while keeping the default scored path at `256`. I threaded that through [measure_ann_search_only](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/measure_ann_search_only:43), [measure_ann_benchmark](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/measure_ann_benchmark:26), [sweep_ann_search_only](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/sweep_ann_search_only:25), and [sweep_ann_benchmark](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/sweep_ann_benchmark:25). I also recorded the outcome in [campaign_journal.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/campaign_journal.md:442), [research_notes.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/research_notes.md:359), [strategy.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/strategy.md:10), [tools/README.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/README.md:49), and [cycle_051.json](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/recent_cycles/cycle_051.json:1).
+
+**Results**
+
+The new geometry axis produced one real local-valid ANN point: `384 x 64 / primary_probe 20 / cluster_probe 192 / prescore 384` reached `5694.80` QPS at `0.9507` recall on the primed 300-query local gate. It did not transfer: the exact fast 1000-query ANN benchmark fell to `4046.72` QPS at `0.9568` recall. So higher-primary geometry is now benchmarkable, but not promotable by itself.
+
+Official scored-path validation stayed clean. `run_correctness_test` passed at `1.0000`, and the serial quick `run_benchmark` reached `12256.90` QPS. Current score expectation is still low-`12k` quick, so this cycle is unlikely to beat the existing `12466.79` best-valid state, and it is nowhere near `22000+`.
+
+**Next**
+
+Best next move is to keep the new `--primary-clusters` knob and pair it with a stronger routing or training change, not another bare geometry sweep. The new data says larger primary fanout can look good locally but still loses badly on the exact resident-state gate.

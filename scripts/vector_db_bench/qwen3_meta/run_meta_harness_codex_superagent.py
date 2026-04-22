@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from meta_harness_common import DEFAULT_DOTENV_PATH, ensure_blank_seed, load_dotenv, write_json
+from meta_harness_common import DEFAULT_DOTENV_PATH, ensure_blank_seed, load_dotenv, run_modal_benchmark, write_json
 
 try:
     from meta_harness_runtime import (
@@ -47,6 +47,7 @@ DEFAULT_CYCLE_TIMEOUT_SECONDS = 0
 DEFAULT_QUICK_BENCH_QUERIES = 1000
 DEFAULT_FULL_BENCH_THRESHOLD_RATIO = 0.97
 DEFAULT_AUTO_RESTORE_INVALID_CYCLES = 2
+DEFAULT_MODAL_SCRIPT_PATH = REPO_ROOT / "scripts" / "vector_db_bench" / "modal_vdb_eval.py"
 DEFAULT_RUN_ROOT = (
     REPO_ROOT
     / "data"
@@ -168,6 +169,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--codex-oss", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--codex-local-provider", choices=("", "ollama", "lmstudio"), default="")
     parser.add_argument("--codex-enable-web-search", action=argparse.BooleanOptionalAction, default=True)
+
+    parser.add_argument(
+        "--modal-eval",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Use Modal (remote CPU) for build+benchmark instead of local execution.",
+    )
+    parser.add_argument(
+        "--modal-script-path",
+        type=Path,
+        default=DEFAULT_MODAL_SCRIPT_PATH,
+        help="Path to modal_vdb_eval.py. Requires VECTOR_DB_BENCH_ROOT in env.",
+    )
     return parser.parse_args()
 
 
@@ -198,6 +212,7 @@ def _run_codex_exec(
         executable,
         "exec",
         "--ephemeral",
+        "--skip-git-repo-check",
         "--color",
         "never",
         "--json",
@@ -446,7 +461,7 @@ def _load_summary(path: Path) -> dict[str, Any]:
     }
 
 
-def _write_dynamic_files(*, workspace: Path, run_root: Path, summary: dict[str, Any], cycle_index: int, goal_qps: float) -> None:
+def _write_dynamic_files(*, workspace: Path, run_root: Path, summary: dict[str, Any], cycle_index: int, goal_qps: float, modal_eval: bool = False, modal_script_path: Path | None = None) -> None:
     meta_dir = workspace / ".meta_codex"
     meta_dir.mkdir(parents=True, exist_ok=True)
     best_qps = float(summary.get("best_qps", 0.0) or 0.0)
@@ -528,18 +543,21 @@ def _write_dynamic_files(*, workspace: Path, run_root: Path, summary: dict[str, 
     }
     write_json(run_root / "mainline_manifest.json", manifest_payload)
     write_json(meta_dir / "mainline_manifest.json", manifest_payload)
+    _sc = json.loads((run_root / "superagent_config.json").read_text(encoding="utf-8"))
     write_json(
         meta_dir / "tool_config.json",
         {
             "repo_root": str(REPO_ROOT),
             "run_root": str(run_root),
             "workspace": str(workspace),
-            "bench_repo": str((run_root / "superagent_config.json") and json.loads((run_root / "superagent_config.json").read_text(encoding="utf-8")).get("bench_repo", "")),
-            "data_dir": str((run_root / "superagent_config.json") and json.loads((run_root / "superagent_config.json").read_text(encoding="utf-8")).get("data_dir", "")),
-            "cpu_cores": str((run_root / "superagent_config.json") and json.loads((run_root / "superagent_config.json").read_text(encoding="utf-8")).get("cpu_cores", "")),
+            "bench_repo": str(_sc.get("bench_repo", "")),
+            "data_dir": str(_sc.get("data_dir", "")),
+            "cpu_cores": str(_sc.get("cpu_cores", "")),
             "goal_qps": goal_qps,
             "cycle": cycle_index,
             "tool_calls_total": 2147483647,
+            "use_modal_eval": modal_eval,
+            "modal_script_path": str(modal_script_path) if modal_script_path else "",
         },
     )
 
@@ -630,14 +648,54 @@ def _evaluate_workspace(
     *,
     workspace: Path,
     bench_repo: Path,
-    benchmark_bin: Path,
+    benchmark_bin: Path | None,
     data_dir: Path,
     cpu_cores: str,
     quick_queries: int,
     best_qps: float,
     full_threshold_ratio: float,
     run_root: Path,
+    modal_eval: bool = False,
+    modal_script_path: Path | None = None,
 ) -> EvaluationResult:
+    if modal_eval and modal_script_path is not None:
+        # Remote eval: Modal handles build + benchmark internally.
+        # Skip local build and correctness; rely on recall_passed from benchmark result.
+        correctness: dict[str, Any] = {"type": "CorrectnessTest", "passed": True}
+        quick = run_modal_benchmark(
+            workspace=workspace,
+            modal_script_path=modal_script_path,
+            bench_root=str(bench_repo),
+            data_dir=str(data_dir),
+            max_queries=quick_queries,
+        )
+        quick_valid = _is_valid_benchmark(quick)
+        quick_qps = float(quick.get("qps", 0.0) or 0.0) if quick_valid else 0.0
+        should_run_full = quick_valid and (
+            best_qps <= 0.0 or quick_qps >= max(1.0, best_qps * full_threshold_ratio)
+        )
+        full: dict[str, Any] | None = None
+        if should_run_full:
+            full = run_modal_benchmark(
+                workspace=workspace,
+                modal_script_path=modal_script_path,
+                bench_root=str(bench_repo),
+                data_dir=str(data_dir),
+                max_queries=0,
+            )
+        chosen = full if _is_valid_benchmark(full) else (quick if quick_valid else None)
+        valid = chosen is not None
+        return EvaluationResult(
+            build_success=True,
+            build_error=None,
+            correctness=correctness,
+            quick_benchmark=quick,
+            full_benchmark=full,
+            chosen_result=chosen,
+            valid=valid,
+            promoted=False,
+        )
+
     build_error = _build_project(workspace, profiling=False)
     build_success = build_error is None
     if not build_success:
@@ -718,6 +776,13 @@ def _log(message: str) -> None:
     print(message, flush=True)
 
 
+def _tail_text(value: str, limit: int = 2000) -> str:
+    value = value.strip()
+    if len(value) <= limit:
+        return value
+    return value[-limit:]
+
+
 def main() -> int:
     args = parse_args()
     load_dotenv(args.dotenv_path)
@@ -758,6 +823,8 @@ def main() -> int:
             "data_dir": str(args.data_dir.resolve()),
             "bootstrap_dir": str(args.bootstrap_dir.resolve()),
             "codex_enable_web_search": args.codex_enable_web_search,
+            "modal_eval": args.modal_eval,
+            "modal_script_path": str(args.modal_script_path.resolve()),
         },
     )
     _log(f"[superagent] run_root={run_root}")
@@ -774,7 +841,7 @@ def main() -> int:
     if not (run_root / "mainline_snapshot").exists():
         _promote_workspace(workspace, run_root)
 
-    benchmark_bin = _ensure_benchmark_binary(args.bench_repo.resolve())
+    benchmark_bin = None if args.modal_eval else _ensure_benchmark_binary(args.bench_repo.resolve())
     writer = _build_results_writer(results_path)
     try:
         start_cycle = int(summary.get("cycles_completed", 0) or 0) + 1
@@ -807,6 +874,8 @@ def main() -> int:
                     summary=summary,
                     cycle_index=cycle_index,
                     goal_qps=args.goal_qps,
+                    modal_eval=args.modal_eval,
+                    modal_script_path=args.modal_script_path.resolve() if args.modal_eval else None,
                 )
                 prompt = _build_cycle_prompt(
                     workspace=workspace,
@@ -835,6 +904,19 @@ def main() -> int:
                 f"[cycle {cycle_index:03d}] codex_done returncode={codex_result.returncode} "
                 f"runtime_seconds={codex_result.runtime_seconds:.2f}"
             )
+            if codex_result.returncode != 0:
+                stderr_tail = _tail_text(codex_result.stderr)
+                if stderr_tail:
+                    _log(f"[cycle {cycle_index:03d}] codex_stderr_tail:\n{stderr_tail}")
+                elif codex_result.timed_out:
+                    _log(f"[cycle {cycle_index:03d}] codex timed out without stderr output")
+                else:
+                    _log(f"[cycle {cycle_index:03d}] codex failed without stderr output")
+                if codex_result.last_message.strip():
+                    _log(
+                        f"[cycle {cycle_index:03d}] codex_last_message_tail:\n"
+                        f"{_tail_text(codex_result.last_message)}"
+                    )
             write_json(
                 outputs_root / f"cycle_{cycle_index:03d}_exec.json",
                 {
@@ -858,6 +940,8 @@ def main() -> int:
                 best_qps=float(summary.get("best_qps", 0.0) or 0.0),
                 full_threshold_ratio=args.full_benchmark_threshold_ratio,
                 run_root=run_root,
+                modal_eval=args.modal_eval,
+                modal_script_path=args.modal_script_path.resolve() if args.modal_eval else None,
             )
             promoted = False
             chosen = evaluation.chosen_result or {}

@@ -1,0 +1,13 @@
+Changed:
+- `src/db.rs` now keeps per-vector quantized centroid radii for the flat ANN fallback, orders cluster storage by that radius, and uses an opt-out default-on radius-band scan path. ANN stats now also report `pruned_vectors`.
+- `.meta_codex/tools/measure_ann_search_only` and `.meta_codex/tools/measure_ann_benchmark` now support explicit `--enable-vector-radius-prune` and `--disable-vector-radius-prune` switches.
+- I updated `.meta_codex/strategy.md`, `.meta_codex/research_notes.md`, `.meta_codex/campaign_journal.md`, and `.meta_codex/tools/README.md` with the cycle-31 results.
+
+Current expectation:
+- Official default path is still valid but plateaued. `run_correctness_test` passed at `1.0000` recall, and a fresh quick `run_benchmark` measured `9991.14 QPS`.
+- The ANN fallback improved relative to the current workspace baseline: exact `measure_ann_benchmark` at the kept `14 / 136 / 480` point moved from about `4101.72 QPS` with radius prune forced off to about `4294.20 QPS` at `0.9522` recall with the new default-on path.
+- Local preload/search-only improved much more, from about `4698.50` to about `6297.35 QPS`, but ANN stats show only about `3.57` pruned vectors/query and still about `12.22k` scanned vectors/query. So this is a real fallback improvement, not a real shortlist breakthrough yet.
+- As of April 22, 2026, that still leaves the workspace well short of the public `21.5k` class target described here: https://lushbinary.com/blog/glm-5-1-vectordbbench-6000-tool-calls-21k-qps/ and the official site remains https://vector-db-bench.kcores.com/
+
+Next best move:
+- Build on the new radius metadata instead of stopping at scan-order cleanup. The strongest next branch is a tighter per-vector or per-subcluster bound that prunes materially more than a few vectors/query, or a cheaper routing change that makes a wider geometry worth retrying on the exact wrapper.

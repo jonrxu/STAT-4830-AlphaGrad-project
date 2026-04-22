@@ -1,0 +1,26 @@
+{
+  "argv": [
+    "/usr/local/bin/codex",
+    "exec",
+    "--ephemeral",
+    "--skip-git-repo-check",
+    "--color",
+    "never",
+    "--json",
+    "--sandbox",
+    "danger-full-access",
+    "-C",
+    "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace",
+    "--output-last-message",
+    "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/codex_outputs/cycle_057_last_message.txt",
+    "--enable",
+    "web_search_request",
+    "-"
+  ],
+  "events_path": "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/codex_outputs/cycle_057_events.jsonl",
+  "last_message": "",
+  "returncode": 1,
+  "runtime_seconds": 4.324599742889404,
+  "stderr": "",
+  "timed_out": false
+}

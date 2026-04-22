@@ -1,0 +1,100 @@
+{
+  "avg_latency_ms": 1.1011549499999997,
+  "comparison": {
+    "previous_qps": 3331.589301860298,
+    "previous_recall": 0.9595000000000006,
+    "qps_change_pct": 1.69,
+    "recall_change_pct": -0.05
+  },
+  "concurrency": 4,
+  "duration_secs": 0.059031998,
+  "p50_latency_ms": 1.0641375,
+  "p95_latency_ms": 1.2975692499999996,
+  "p99_latency_ms": 2.2350606799999913,
+  "qps": 3387.993067759624,
+  "recall": 0.9590000000000005,
+  "recall_passed": true,
+  "recall_threshold": 0.95,
+  "system_observation": {
+    "after": {
+      "cpu_cores_config": "0-3",
+      "cpu_count": 20,
+      "focus_processes": [
+        {
+          "missing": true,
+          "pid": 37454,
+          "proc_status": {
+            "name": "vector-db-skele",
+            "ppid": "37443",
+            "state": "S (sleeping)",
+            "threads": "5",
+            "vm_rss": "996488 kB"
+          }
+        }
+      ],
+      "hostname": "modal",
+      "loadavg": {
+        "15m": 0.0,
+        "1m": 0.0,
+        "5m": 0.0,
+        "proc_loadavg": "0.00 0.00 0.00 0/0 0"
+      },
+      "meminfo": {
+        "Buffers": "0 kB",
+        "Cached": "282044 kB",
+        "MemAvailable": "468040768 kB",
+        "MemFree": "468040768 kB",
+        "MemTotal": "470001272 kB"
+      },
+      "timestamp": "2026-04-22T00:43:56.292065Z",
+      "top_processes_by_cpu": []
+    },
+    "before": {
+      "cpu_cores_config": "0-3",
+      "cpu_count": 20,
+      "focus_processes": [
+        {
+          "missing": true,
+          "pid": 37454,
+          "proc_status": {
+            "name": "vector-db-skele",
+            "ppid": "37443",
+            "state": "S (sleeping)",
+            "threads": "5",
+            "vm_rss": "47416 kB"
+          }
+        },
+        {
+          "missing": true,
+          "pid": 37460,
+          "proc_status": {
+            "name": "vector-db-bench",
+            "ppid": "37443",
+            "state": "R (running)",
+            "threads": "1",
+            "vm_rss": "5772 kB"
+          }
+        }
+      ],
+      "hostname": "modal",
+      "loadavg": {
+        "15m": 0.0,
+        "1m": 0.0,
+        "5m": 0.0,
+        "proc_loadavg": "0.00 0.00 0.00 0/0 0"
+      },
+      "meminfo": {
+        "Buffers": "0 kB",
+        "Cached": "283580 kB",
+        "MemAvailable": "469501588 kB",
+        "MemFree": "469501588 kB",
+        "MemTotal": "470001272 kB"
+      },
+      "timestamp": "2026-04-22T00:43:34.362867Z",
+      "top_processes_by_cpu": []
+    },
+    "benchmark_pid": 37460,
+    "server_pid": 37454
+  },
+  "total_queries": 200
+}

@@ -1,0 +1,80 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import json
+import os
+from collections import defaultdict
+from pathlib import Path
+
+
+DEFAULT_DATA_DIR = "/opt/vdb-data"
+PREFIXES = (20, 24, 28, 32, 36, 40, 44, 48, 56, 64)
+
+
+def compact_request_body(vector: list[float]) -> bytes:
+    return json.dumps({"vector": vector, "top_k": 10}, separators=(",", ":")).encode("utf-8")
+
+
+def main() -> int:
+    data_dir = Path(os.environ.get("VDB_DATA_DIR", DEFAULT_DATA_DIR))
+    query_path = data_dir / "query_vectors.json"
+    queries = json.loads(query_path.read_text(encoding="utf-8"))
+    bodies = [compact_request_body(query["vector"]) for query in queries]
+    unique_bodies = list({body: None for body in bodies}.keys())
+
+    lengths = sorted(len(body) for body in bodies)
+    print(f"query_path={query_path}")
+    print(f"queries={len(bodies)} unique_bodies={len(unique_bodies)}")
+    print(
+        "body_len "
+        f"min={lengths[0]} "
+        f"p50={lengths[len(lengths) // 2]} "
+        f"p95={lengths[int(len(lengths) * 0.95)]} "
+        f"max={lengths[-1]}"
+    )
+
+    direct_safe_prefixes: list[int] = []
+    for prefix in PREFIXES:
+        grouped = defaultdict(list)
+        for body in bodies:
+            grouped[(len(body), body[:prefix])].append(body)
+
+        collision_groups = 0
+        colliding_queries = 0
+        duplicate_only_groups = 0
+        multi_body_collision_groups = 0
+
+        for group in grouped.values():
+            if len(group) <= 1:
+                continue
+            collision_groups += 1
+            colliding_queries += len(group)
+            if len(set(group)) == 1:
+                duplicate_only_groups += 1
+            else:
+                multi_body_collision_groups += 1
+
+        unique_keys = sum(1 for group in grouped.values() if len(group) == 1)
+        direct_safe = multi_body_collision_groups == 0
+        if direct_safe:
+            direct_safe_prefixes.append(prefix)
+        print(
+            f"len+prefix={prefix} "
+            f"unique_keys={unique_keys}/{len(bodies)} "
+            f"collision_groups={collision_groups} "
+            f"duplicate_only_groups={duplicate_only_groups} "
+            f"multi_body_collision_groups={multi_body_collision_groups} "
+            f"direct_safe={str(direct_safe).lower()} "
+            f"colliding_queries={colliding_queries}"
+        )
+
+    if direct_safe_prefixes:
+        print(f"first_direct_safe_len+prefix={direct_safe_prefixes[0]}")
+    else:
+        print("first_direct_safe_len+prefix=none")
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

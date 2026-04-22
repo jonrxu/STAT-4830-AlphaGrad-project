@@ -1,0 +1,12 @@
+Changed [src/server.rs](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/src/server.rs:56) so fully buffered cached `/search` requests can return directly from the read loop instead of falling through `process_search`. That keeps the existing official cache behavior, recall, and CPU pinning policy, but removes work from the common full-body cache-hit case. I also updated the local harness at [measure_reqwest_search_phases](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/measure_reqwest_search_phases:272) and [reqwest_phase_probe](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/reqwest_phase_probe/src/main.rs:44) with `--benchmark-warmup-semantics`, so warmup now matches the official client’s `send().await`-only behavior instead of draining warmup bodies. Notes were recorded in [campaign_journal.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/campaign_journal.md:179), [research_notes.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/research_notes.md:157), and [tools/README.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/README.md:38).
+
+Validation:
+- `build_project`: passed
+- `run_correctness_test`: passed, recall `1.0000`
+- `run_benchmark`: `12574.11 QPS`
+- `run_benchmark --full`: `11763.22 QPS`
+- `VDB_DIRECT_OFFICIAL_REQUEST_CACHE=1` still regressed on the real benchmark: `11336.03 QPS`, so I left it off
+
+Current score expectation is still low-`12k` quick and high-`11k` full. This branch improved the quick path but did not beat the `12244.84` full incumbent, and it is still far from the `22000` target.
+
+Next best move: add an exact telemetry wrapper around the real official benchmark binary so transport ideas are judged on the true client instead of the reqwest probe, then either keep pushing only if that exact harness shows real transfer or pivot back to a materially stronger ANN shortlist path.

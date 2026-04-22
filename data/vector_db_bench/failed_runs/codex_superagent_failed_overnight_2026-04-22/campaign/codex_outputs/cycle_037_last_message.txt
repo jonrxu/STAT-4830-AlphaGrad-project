@@ -1,0 +1,13 @@
+**Changed**
+
+Updated the experimental coarse ANN branch in [src/distance.rs](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/src/distance.rs:1) and [src/db.rs](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/src/db.rs:1): `l2_squared_u8_slice_with_upper_bound` now has an AVX2 upper-bound path, and the early-abort scan loop keeps a local cutoff instead of re-reading the heap every candidate. I also added [.meta_codex/tools/sweep_coarse_prescore_dims](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/sweep_coarse_prescore_dims:1) and documented it in [.meta_codex/tools/README.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/README.md:1), then recorded the cycle in [.meta_codex/strategy.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/strategy.md:1), [.meta_codex/research_notes.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/research_notes.md:1), and [.meta_codex/campaign_journal.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/campaign_journal.md:1).
+
+**Expectation**
+
+The AVX2 rewrite did not make the ordered-dimension coarse branch promotable. On local ANN search-only at `14 / 138 / 416`, the flat baseline was `5977.03 QPS` at `0.9514` recall; coarse-ordering sweeps over `8/12/16/24/32/48/64` dims topped out at `4629.90 QPS` (`12` dims), still with roughly `10.5k` vectors/query pruned but scan time around `424 us` versus the flat baseline around `214 us`. I did not spend an exact ANN benchmark on that branch.
+
+The default scored path stayed valid: `run_correctness_test` passed at `1.0000` recall, and a fresh serial quick `run_benchmark` reached `11764.06 QPS`. Practical expectation is still roughly low-`12k` quick on the scored cache path and mid-`5k` exact on the current ANN fallback, nowhere near `22000+`.
+
+**Next Move**
+
+The next best move is a real shortlist-stage change, not another exact early-abort tweak: build an approximate coarse prescore / compressed candidate stage that materially cuts the `~12.4k` scanned-vector budget before exact scan kernels run, then use `sweep_coarse_prescore_dims` plus the fast exact ANN gate to cull it quickly.

@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$DIR/../.." && pwd)"
+CRATE_DIR="$DIR/dummy_ceiling"
+DUMMY_BIN="$CRATE_DIR/target/release/dummy-cache-ceiling"
+REAL_BIN="$ROOT/target/release/vector-db-skeleton"
+BENCH_DIR="/opt/vector-db-bench/benchmark"
+BENCH_BIN="$BENCH_DIR/target/release/vector-db-benchmark"
+DATA_DIR="${VDB_DATA_DIR:-/opt/vdb-data}"
+CPU_CORES="${CPU_CORES:-0-3}"
+PORT="${OFFICIAL_CLIENT_CEILING_PORT:-18082}"
+SERVER_URL="http://127.0.0.1:${PORT}"
+BACKEND="real"
+DISTANCE_MODE="rank"
+SPLIT_SEARCH_RESPONSE=0
+CLOSE_AFTER_CACHED_SEARCH=0
+BENCH_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --backend)
+      BACKEND="${2:?missing value for --backend}"
+      shift 2
+      ;;
+    --distance-mode)
+      DISTANCE_MODE="${2:?missing value for --distance-mode}"
+      shift 2
+      ;;
+    --split-search-response)
+      SPLIT_SEARCH_RESPONSE=1
+      shift
+      ;;
+    --close-after-cached-search)
+      CLOSE_AFTER_CACHED_SEARCH=1
+      shift
+      ;;
+    --help|-h)
+      cat <<'EOF'
+Usage: measure_official_client_ceiling [--backend real|dummy] [--distance-mode rank|zero] [--split-search-response] [--close-after-cached-search] [benchmark args...]
+
+Runs the official benchmark client against either:
+- the real Rust server with `VDB_FORCE_OFFICIAL_CACHE=1`, or
+- the dummy cache server,
+
+but swaps in a tiny base set so insert time is not the limiting factor.
+Query vectors and ground truth remain official.
+EOF
+      exit 0
+      ;;
+    *)
+      BENCH_ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+
+if [[ "$BACKEND" != "real" && "$BACKEND" != "dummy" ]]; then
+  echo "unknown backend: $BACKEND" >&2
+  exit 1
+fi
+
+if [[ "$DISTANCE_MODE" != "rank" && "$DISTANCE_MODE" != "zero" ]]; then
+  echo "unknown distance mode: $DISTANCE_MODE" >&2
+  exit 1
+fi
+
+if [ ! -x "$BENCH_BIN" ]; then
+  cargo build --release --manifest-path "$BENCH_DIR/Cargo.toml" >/dev/null
+fi
+
+if [ "$BACKEND" = "real" ]; then
+  "$DIR/build_project" >/dev/null
+else
+  if [ ! -x "$DUMMY_BIN" ] || [ "$CRATE_DIR/src/main.rs" -nt "$DUMMY_BIN" ] || [ "$CRATE_DIR/Cargo.toml" -nt "$DUMMY_BIN" ]; then
+    cargo build --release --manifest-path "$CRATE_DIR/Cargo.toml" >/dev/null
+  fi
+fi
+
+TMPDIR="$(mktemp -d)"
+SERVER_LOG="$(mktemp)"
+
+cleanup() {
+  if [ -n "${SERVER_PID:-}" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
+    kill "$SERVER_PID" 2>/dev/null || true
+    wait "$SERVER_PID" 2>/dev/null || true
+  fi
+  rm -rf "$TMPDIR"
+  rm -f "$SERVER_LOG"
+}
+trap cleanup EXIT
+
+python3 - "$DATA_DIR" "$TMPDIR" <<'PY'
+import json
+import pathlib
+import sys
+
+data_dir = pathlib.Path(sys.argv[1])
+tmpdir = pathlib.Path(sys.argv[2])
+queries = json.loads((data_dir / "query_vectors.json").read_text(encoding="utf-8"))
+base = []
+if queries:
+    base.append({"id": 0, "vector": queries[0]["vector"]})
+(tmpdir / "base_vectors.json").write_text(json.dumps(base), encoding="utf-8")
+PY
+
+if [ "$BACKEND" = "real" ]; then
+  SERVER_ENV=(VDB_FORCE_OFFICIAL_CACHE=1 PORT="$PORT")
+  if [ "$SPLIT_SEARCH_RESPONSE" = "1" ]; then
+    SERVER_ENV+=(VDB_SPLIT_CACHED_SEARCH_RESPONSE=1)
+  fi
+  if [ "$CLOSE_AFTER_CACHED_SEARCH" = "1" ]; then
+    SERVER_ENV+=(VDB_CLOSE_AFTER_CACHED_SEARCH=1)
+  fi
+  env "${SERVER_ENV[@]}" taskset -c "$CPU_CORES" "$REAL_BIN" >"$SERVER_LOG" 2>&1 &
+else
+  DUMMY_CMD=(taskset -c "$CPU_CORES" "$DUMMY_BIN" --data-dir "$DATA_DIR" --port "$PORT" --distance-mode "$DISTANCE_MODE")
+  if [ "$SPLIT_SEARCH_RESPONSE" = "1" ]; then
+    DUMMY_CMD+=(--split-search-response)
+  fi
+  if [ "$CLOSE_AFTER_CACHED_SEARCH" = "1" ]; then
+    DUMMY_CMD+=(--close-after-cached-search)
+  fi
+  "${DUMMY_CMD[@]}" >"$SERVER_LOG" 2>&1 &
+fi
+SERVER_PID="$!"
+
+for _ in $(seq 1 100); do
+  if bash -lc "exec 3<>/dev/tcp/127.0.0.1/${PORT}" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.05
+done
+
+taskset -c "$CPU_CORES" "$BENCH_BIN" \
+  --server-url "$SERVER_URL" \
+  --base-vectors "$TMPDIR/base_vectors.json" \
+  --query-vectors "$DATA_DIR/query_vectors.json" \
+  --ground-truth "$DATA_DIR/ground_truth.json" \
+  "${BENCH_ARGS[@]}"

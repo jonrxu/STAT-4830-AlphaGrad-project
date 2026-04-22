@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+
+TOOLS_DIR = Path(__file__).resolve().parent
+MEASURE_BREAKDOWN = TOOLS_DIR / "measure_official_benchmark_breakdown"
+UNSET_VALUES = {"off", "unset", "none", "default"}
+
+
+def summarize_run(value: str, payload: dict[str, object]) -> dict[str, object]:
+    benchmark = payload.get("benchmark")
+    stats = payload.get("request_stats")
+    summary: dict[str, object] = {"value": value}
+
+    if isinstance(benchmark, dict):
+        summary["qps"] = benchmark.get("qps")
+        summary["recall"] = benchmark.get("recall")
+        summary["avg_latency_ms"] = benchmark.get("avg_latency_ms")
+
+    if isinstance(stats, dict):
+        summary["search_request_cache_fast_hits"] = stats.get("search_request_cache_fast_hits")
+        summary["search_request_cache_early_hits"] = stats.get("search_request_cache_early_hits")
+        summary["search_request_cache_process_hits"] = stats.get("search_request_cache_process_hits")
+        summary["avg_search_read_request_us"] = stats.get("avg_search_read_request_us")
+        summary["avg_search_write_response_us"] = stats.get("avg_search_write_response_us")
+
+    return summary
+
+
+def main() -> int:
+    argv = sys.argv[1:]
+    if "--" in argv:
+        split = argv.index("--")
+        parser_argv = argv[:split]
+        benchmark_args = argv[split + 1 :]
+    else:
+        parser_argv = argv
+        benchmark_args: list[str] = []
+
+    parser = argparse.ArgumentParser(
+        description=(
+            "Sweep a single environment variable across serial official benchmark breakdown runs "
+            "and emit both the raw payloads and a compact summary table."
+        )
+    )
+    parser.add_argument("env_name", help="Environment variable to set for each run")
+    parser.add_argument(
+        "values",
+        nargs="+",
+        help="Values to test. Use off/unset/none/default to leave the variable unset.",
+    )
+    args = parser.parse_args(parser_argv)
+
+    if not MEASURE_BREAKDOWN.is_file():
+        raise SystemExit(f"measure_official_benchmark_breakdown not found: {MEASURE_BREAKDOWN}")
+
+    runs: list[dict[str, object]] = []
+    summary: list[dict[str, object]] = []
+    returncode = 0
+
+    for value in args.values:
+        env = os.environ.copy()
+        if value.lower() in UNSET_VALUES:
+            env.pop(args.env_name, None)
+        else:
+            env[args.env_name] = value
+
+        proc = subprocess.run(
+            [str(MEASURE_BREAKDOWN), *benchmark_args],
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+
+        payload: dict[str, object]
+        try:
+            payload = json.loads(proc.stdout)
+        except json.JSONDecodeError as exc:
+            payload = {
+                "benchmark_parse_error": f"failed to parse output: {exc}",
+                "raw_stdout": proc.stdout,
+            }
+
+        runs.append(
+            {
+                "value": value,
+                "returncode": proc.returncode,
+                "payload": payload,
+                "stderr": proc.stderr.strip() or None,
+            }
+        )
+        summary.append(summarize_run(value, payload))
+        returncode = returncode or proc.returncode
+
+    print(
+        json.dumps(
+            {
+                "type": "SweepOfficialBreakdown",
+                "env_name": args.env_name,
+                "benchmark_args": benchmark_args,
+                "summary": summary,
+                "runs": runs,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return returncode
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

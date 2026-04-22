@@ -1,0 +1,15 @@
+**Changed**
+
+- Added a default-off global PQ shortlist experiment in [src/db.rs](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/src/db.rs): `VDB_ENABLE_PQ_PRESCORE` now trains compact global PQ codebooks, stores per-vector PQ codes in cluster order, and uses PQ prescoring before the existing `f16` rerank.
+- Extended the ANN harness in [measure_ann_search_only](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/measure_ann_search_only), [measure_ann_benchmark](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/measure_ann_benchmark), and [tools/README.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/README.md) with `--enable-pq-prescore`; `measure_ann_search_only` also now has `--prime-build` so local runs can exclude first-search index build from steady-state QPS comparisons.
+- Updated the persistent notes in [strategy.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/strategy.md), [research_notes.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/research_notes.md), and [campaign_journal.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/campaign_journal.md).
+
+**Current Expectation**
+
+- Default scored path is still valid and unchanged in behavior: `build_project` succeeded, `run_correctness_test` passed at `1.0000` recall, and a fresh quick `run_benchmark` measured `7491.12 QPS`. I would treat that quick number as noise; the scored expectation is still roughly low-`10k` to low-`12k`, not a promotion candidate.
+- The new PQ branch is promising locally but not yet exact-transfer positive. Best primed local result was `6201.53 QPS`, `0.9507` recall at `14 / 136 / 352`; hot manual local checks reached `6338.30` at `14 / 138 / 416` and `6734.88` at `14 / 136 / 352`.
+- Exact fast ANN still trails the kept flat baseline: PQ reached `5107.95 QPS`, `0.9532` at `14 / 138 / 416` and `5272.75`, `0.9525` at `14 / 136 / 352`, versus the flat exact baseline around `5529.23`.
+
+**Next Best Move**
+
+Keep PQ experimental and build on it, not on the older coarse-dim branch. The best next step is to improve PQ exact transfer with a stronger routed signal or cheaper routing/build path, using `measure_ann_search_only --prime-build` as the local culling tool before paying the exact fast gate again.

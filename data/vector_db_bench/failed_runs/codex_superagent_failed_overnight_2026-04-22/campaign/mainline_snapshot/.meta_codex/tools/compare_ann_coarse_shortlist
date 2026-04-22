@@ -1,0 +1,186 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import statistics
+import subprocess
+import sys
+from pathlib import Path
+
+
+def run_measure(script: Path, flags: list[str], client_args: list[str]) -> dict:
+    cmd = [str(script), "--prime-build", "--include-ann-stats", *flags]
+    if client_args:
+        cmd.append("--")
+        cmd.extend(client_args)
+
+    completed = subprocess.run(
+        cmd,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return json.loads(completed.stdout)
+
+
+def mean_or_none(values: list[float | None]) -> float | None:
+    filtered = [value for value in values if value is not None]
+    if not filtered:
+        return None
+    return statistics.fmean(filtered)
+
+
+def summarize(results: list[dict]) -> dict:
+    qps = [result["qps"] for result in results]
+    recall = [result["recall"] for result in results]
+    scan_us = [
+        result.get("ann_stats", {}).get("avg_scan_us") if result.get("ann_stats") else None
+        for result in results
+    ]
+    rescored = [
+        result.get("ann_stats", {}).get("avg_rescored_candidates")
+        if result.get("ann_stats")
+        else None
+        for result in results
+    ]
+    scanned = [
+        result.get("ann_stats", {}).get("avg_scanned_vectors")
+        if result.get("ann_stats")
+        else None
+        for result in results
+    ]
+    return {
+        "runs": len(results),
+        "qps": qps,
+        "recall": recall,
+        "mean_qps": statistics.fmean(qps),
+        "mean_recall": statistics.fmean(recall),
+        "mean_scan_us": mean_or_none(scan_us),
+        "mean_rescored_candidates": mean_or_none(rescored),
+        "mean_scanned_vectors": mean_or_none(scanned),
+    }
+
+
+def build_flags(
+    cluster_probe: int,
+    prescore_candidates: int,
+    coarse_dims: int | None,
+    coarse_candidates: int | None,
+    coarse_scope: str | None,
+    coarse_mode: str | None,
+) -> list[str]:
+    flags = [
+        "--cluster-probe",
+        str(cluster_probe),
+        "--prescore-candidates",
+        str(prescore_candidates),
+    ]
+    if coarse_dims is not None:
+        flags.extend(["--coarse-prescore-dims", str(coarse_dims)])
+    if coarse_candidates is not None:
+        flags.extend(["--coarse-prescore-candidates", str(coarse_candidates)])
+    if coarse_scope is not None:
+        flags.extend(["--coarse-prescore-scope", coarse_scope])
+    if coarse_mode is not None:
+        flags.extend(["--coarse-prescore-mode", coarse_mode])
+    return flags
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Compare flat ANN search-only runs against one coarse-shortlist point "
+            "using repeated local harness measurements."
+        )
+    )
+    parser.add_argument("--count", type=int, default=3, help="runs per side")
+    parser.add_argument("--cluster-probe", type=int, default=138)
+    parser.add_argument("--prescore-candidates", type=int, default=416)
+    parser.add_argument("--coarse-prescore-dims", type=int, required=True)
+    parser.add_argument("--coarse-prescore-candidates", type=int, required=True)
+    parser.add_argument(
+        "--coarse-prescore-scope",
+        choices=("cluster", "primary"),
+        default="cluster",
+    )
+    parser.add_argument(
+        "--coarse-prescore-mode",
+        choices=("raw", "residual", "group_residual", "group-residual"),
+        default="raw",
+    )
+    parser.add_argument(
+        "client_args",
+        nargs=argparse.REMAINDER,
+        help="extra args passed through to measure_ann_search_only after --",
+    )
+    args = parser.parse_args()
+
+    client_args = list(args.client_args)
+    if client_args and client_args[0] == "--":
+        client_args = client_args[1:]
+
+    script = Path(__file__).resolve().parent / "measure_ann_search_only"
+    baseline_flags = build_flags(
+        args.cluster_probe,
+        args.prescore_candidates,
+        None,
+        None,
+        None,
+        None,
+    )
+    coarse_flags = build_flags(
+        args.cluster_probe,
+        args.prescore_candidates,
+        args.coarse_prescore_dims,
+        args.coarse_prescore_candidates,
+        args.coarse_prescore_scope,
+        args.coarse_prescore_mode,
+    )
+
+    baseline_results = []
+    coarse_results = []
+    for run_idx in range(args.count):
+        print(f"[baseline {run_idx + 1}/{args.count}]", file=sys.stderr)
+        baseline_results.append(run_measure(script, baseline_flags, client_args))
+        print(f"[coarse {run_idx + 1}/{args.count}]", file=sys.stderr)
+        coarse_results.append(run_measure(script, coarse_flags, client_args))
+
+    baseline_summary = summarize(baseline_results)
+    coarse_summary = summarize(coarse_results)
+    output = {
+        "baseline": baseline_summary,
+        "coarse": coarse_summary,
+        "delta": {
+            "mean_qps_pct": (
+                (coarse_summary["mean_qps"] / baseline_summary["mean_qps"] - 1.0) * 100.0
+            ),
+            "mean_recall_delta": coarse_summary["mean_recall"] - baseline_summary["mean_recall"],
+            "mean_scan_us_delta": (
+                None
+                if baseline_summary["mean_scan_us"] is None
+                or coarse_summary["mean_scan_us"] is None
+                else coarse_summary["mean_scan_us"] - baseline_summary["mean_scan_us"]
+            ),
+            "mean_scanned_vectors_delta": (
+                None
+                if baseline_summary["mean_scanned_vectors"] is None
+                or coarse_summary["mean_scanned_vectors"] is None
+                else coarse_summary["mean_scanned_vectors"]
+                - baseline_summary["mean_scanned_vectors"]
+            ),
+        },
+        "settings": {
+            "cluster_probe": args.cluster_probe,
+            "prescore_candidates": args.prescore_candidates,
+            "coarse_prescore_dims": args.coarse_prescore_dims,
+            "coarse_prescore_candidates": args.coarse_prescore_candidates,
+            "coarse_prescore_scope": args.coarse_prescore_scope,
+            "coarse_prescore_mode": args.coarse_prescore_mode,
+            "client_args": client_args,
+        },
+    }
+    print(json.dumps(output, indent=2, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,157 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+
+TOOLS_DIR = Path(__file__).resolve().parent
+RUNNERS = {
+    "search-only": TOOLS_DIR / "measure_ann_search_only",
+    "benchmark": TOOLS_DIR / "measure_ann_benchmark",
+}
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Sweep coarse-prescore dimension orderings through the ANN measurement wrappers "
+            "and emit both raw payloads and a compact summary."
+        )
+    )
+    parser.add_argument(
+        "--runner",
+        choices=sorted(RUNNERS),
+        default="search-only",
+        help="Which ANN measurement wrapper to call for each dimension count.",
+    )
+    parser.add_argument(
+        "--dims",
+        nargs="+",
+        type=int,
+        required=True,
+        help="Coarse-prescore dimension counts to test serially.",
+    )
+    parser.add_argument(
+        "--coarse-candidates",
+        nargs="+",
+        type=int,
+        default=None,
+        help="Optional coarse shortlist budgets to sweep for each dimension count.",
+    )
+    parser.add_argument(
+        "--coarse-mode",
+        choices=["raw", "residual", "group_residual", "group-residual"],
+        default=None,
+        help="Optional coarse shortlist representation mode to pass through.",
+    )
+    parser.add_argument(
+        "runner_args",
+        nargs=argparse.REMAINDER,
+        help="Arguments forwarded to the chosen ANN measurement wrapper.",
+    )
+    return parser.parse_args()
+
+
+def summarize_run(dim: int, coarse_candidates: int | None, payload: dict[str, object]) -> dict[str, object]:
+    summary: dict[str, object] = {
+        "dims": dim,
+        "coarse_candidates": coarse_candidates,
+        "qps": payload.get("qps"),
+        "recall": payload.get("recall"),
+        "type": payload.get("type"),
+    }
+
+    ann_stats = payload.get("ann_stats")
+    if isinstance(ann_stats, dict):
+        for key in (
+            "avg_scanned_vectors",
+            "avg_rescored_candidates",
+            "avg_pruned_vectors",
+            "avg_route_us",
+            "avg_scan_us",
+            "avg_rerank_us",
+        ):
+            summary[key] = ann_stats.get(key)
+
+    benchmark = payload.get("benchmark")
+    if isinstance(benchmark, dict):
+        for key in ("qps", "recall", "avg_latency_ms"):
+            summary[f"benchmark_{key}"] = benchmark.get(key)
+
+    return summary
+
+
+def main() -> int:
+    args = parse_args()
+    runner_args = args.runner_args
+    if runner_args[:1] == ["--"]:
+        runner_args = runner_args[1:]
+
+    runner = RUNNERS[args.runner]
+    if not runner.is_file():
+        raise SystemExit(f"runner not found: {runner}")
+
+    runs: list[dict[str, object]] = []
+    summary: list[dict[str, object]] = []
+    returncode = 0
+    coarse_candidates_values = args.coarse_candidates or [None]
+
+    for dim in args.dims:
+        for coarse_candidates in coarse_candidates_values:
+            argv = [str(runner), "--coarse-prescore-dims", str(dim)]
+            if coarse_candidates is not None:
+                argv.extend(["--coarse-prescore-candidates", str(coarse_candidates)])
+            if args.coarse_mode is not None:
+                argv.extend(["--coarse-prescore-mode", args.coarse_mode])
+            argv.extend(runner_args)
+
+            proc = subprocess.run(
+                argv,
+                capture_output=True,
+                text=True,
+            )
+
+            payload: dict[str, object]
+            try:
+                payload = json.loads(proc.stdout)
+            except json.JSONDecodeError as exc:
+                payload = {
+                    "parse_error": f"failed to parse runner output: {exc}",
+                    "raw_stdout": proc.stdout,
+                }
+
+            runs.append(
+                {
+                    "dims": dim,
+                    "coarse_candidates": coarse_candidates,
+                    "returncode": proc.returncode,
+                    "payload": payload,
+                    "stderr": proc.stderr.strip() or None,
+                }
+            )
+            summary.append(summarize_run(dim, coarse_candidates, payload))
+            returncode = returncode or proc.returncode
+
+    print(
+        json.dumps(
+            {
+                "type": "SweepCoarsePrescoreDims",
+                "runner": args.runner,
+                "runner_args": runner_args,
+                "coarse_mode": args.coarse_mode,
+                "summary": summary,
+                "runs": runs,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return returncode
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

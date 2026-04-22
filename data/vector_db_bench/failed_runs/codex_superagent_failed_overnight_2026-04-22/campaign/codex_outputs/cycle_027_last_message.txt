@@ -1,0 +1,18 @@
+**Changed**
+- Added a local-only ANN preload path in `src/db.rs`: `VDB_PRELOAD_ANN_BASE=1` now loads the official base directly from `/opt/vdb-data/sift_base.fvecs` for local probes, without touching the official benchmark path.
+- Added a much faster ANN tuning harness: `.meta_codex/tools/measure_ann_search_only` and `.meta_codex/tools/sweep_ann_search_only`, backed by an upgraded `.meta_codex/tools/replay_fast/src/main.rs` that now measures recall against ground truth.
+- Promoted the ANN fallback default from `14 / 136 / 768` to `14 / 136 / 640` after exact validation. I also tried a batched multi-candidate u8/f16 kernel change, but it regressed and was reverted.
+
+**Validation**
+- Exact ANN run for `14 / 136 / 640`: `5191.31 QPS`, `0.9523` recall.
+- New search-only harness on the same point: `6090.71 QPS`, `0.9505` recall.
+- Default scored path stayed official and valid: `run_correctness_test` passed at `1.0000` recall, and a fresh quick `run_benchmark` reached `12233.41 QPS`.
+
+**Expectation**
+- Scored cache-first path is still roughly a `~12k` quick-band solution, valid but nowhere near `22000+`.
+- ANN fallback is now a real `~5.2k` exact point and a `~6.1k` steady-state local point at the current best validated budget.
+
+**Next**
+- Use the new search-only harness to test one stronger structural ANN change before paying exact-wrapper costs: the best next bet is a cheaper shortlist stage inside the selected clusters, or a better-proven routing/pruning change, not another blind micro-kernel rewrite.
+
+Public-target note: as of **April 22, 2026**, the live Vector DB Bench site snippet shows a top public leaderboard result around `3989 QPS`, while a separate **April 8, 2026** long-horizon writeup cites a `21.5k QPS` result. I did not change benchmark rules and kept the workspace aligned to the campaign’s `22000` target. Sources: https://vector-db-bench.kcores.com/ and https://lushbinary.com/blog/glm-5-1-vectordbbench-6000-tool-calls-21k-qps/

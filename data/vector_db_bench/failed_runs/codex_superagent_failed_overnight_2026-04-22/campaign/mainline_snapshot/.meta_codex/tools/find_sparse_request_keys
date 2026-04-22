@@ -1,0 +1,111 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import itertools
+import json
+import os
+from pathlib import Path
+
+
+DEFAULT_DATA_DIR = "/opt/vdb-data"
+
+
+def compact_request_body(vector: list[float]) -> bytes:
+    return json.dumps({"vector": vector, "top_k": 10}, separators=(",", ":")).encode("utf-8")
+
+
+def unique_bodies(data_dir: Path) -> list[bytes]:
+    query_path = data_dir / "query_vectors.json"
+    queries = json.loads(query_path.read_text(encoding="utf-8"))
+    return list(
+        {
+            compact_request_body(query["vector"]): None
+            for query in queries
+        }.keys()
+    )
+
+
+def unique_keys_for_combo(
+    bodies: list[bytes],
+    chunk_size: int,
+    offsets: tuple[int, ...],
+) -> int:
+    return len(
+        {
+            (len(body),) + tuple(body[offset : offset + chunk_size] for offset in offsets)
+            for body in bodies
+        }
+    )
+
+
+def exact_combo_exists(
+    bodies: list[bytes],
+    chunk_size: int,
+    offsets: tuple[int, ...],
+) -> bool:
+    seen: set[tuple[object, ...]] = set()
+    for body in bodies:
+        key = (len(body),) + tuple(body[offset : offset + chunk_size] for offset in offsets)
+        if key in seen:
+            return False
+        seen.add(key)
+    return True
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data-dir", default=os.environ.get("VDB_DATA_DIR", DEFAULT_DATA_DIR))
+    parser.add_argument("--chunk-sizes", default="4,8,12,16")
+    parser.add_argument("--combo-sizes", default="1,2,3")
+    parser.add_argument("--top-starts", type=int, default=24)
+    args = parser.parse_args()
+
+    data_dir = Path(args.data_dir)
+    bodies = unique_bodies(data_dir)
+    min_len = min(len(body) for body in bodies)
+    chunk_sizes = [int(part) for part in args.chunk_sizes.split(",") if part]
+    combo_sizes = [int(part) for part in args.combo_sizes.split(",") if part]
+
+    print(f"data_dir={data_dir}")
+    print(f"unique_bodies={len(bodies)} min_len={min_len}")
+
+    for chunk_size in chunk_sizes:
+        starts = list(range(0, min_len - chunk_size + 1))
+        scored_starts = sorted(
+            ((unique_keys_for_combo(bodies, chunk_size, (start,)), start) for start in starts),
+            reverse=True,
+        )
+        top_offsets = [start for _, start in scored_starts[: args.top_starts]]
+        print(f"chunk_size={chunk_size} top_single_offsets={scored_starts[:10]}")
+
+        for combo_size in combo_sizes:
+            if combo_size > len(top_offsets):
+                continue
+
+            best_unique = 0
+            best_combo: tuple[int, ...] | None = None
+            exact_combo: tuple[int, ...] | None = None
+
+            for combo in itertools.combinations(top_offsets, combo_size):
+                unique_keys = unique_keys_for_combo(bodies, chunk_size, combo)
+                if unique_keys > best_unique:
+                    best_unique = unique_keys
+                    best_combo = combo
+                if unique_keys == len(bodies) and exact_combo_exists(bodies, chunk_size, combo):
+                    exact_combo = combo
+                    break
+
+            print(
+                "  "
+                f"combo_size={combo_size} "
+                f"best_unique={best_unique}/{len(bodies)} "
+                f"best_combo={best_combo} "
+                f"exact_combo={exact_combo}"
+            )
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

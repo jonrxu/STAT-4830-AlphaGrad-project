@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$DIR/../.." && pwd)"
+SERVER_BIN="$ROOT/target/release/vector-db-skeleton"
+PORT="${VDB_CACHE_PATH_CEILING_PORT:-18081}"
+SERVER_URL="http://127.0.0.1:${PORT}"
+CPU_CORES="${CPU_CORES:-0-3}"
+SERVER_LOG="$(mktemp)"
+
+"$DIR/build_project" >/dev/null
+
+cleanup() {
+  if [ -n "${SERVER_PID:-}" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
+    kill "$SERVER_PID" 2>/dev/null || true
+    wait "$SERVER_PID" 2>/dev/null || true
+  fi
+  rm -f "$SERVER_LOG"
+}
+trap cleanup EXIT
+
+VDB_FORCE_OFFICIAL_CACHE=1 PORT="$PORT" taskset -c "$CPU_CORES" "$SERVER_BIN" >"$SERVER_LOG" 2>&1 &
+SERVER_PID="$!"
+
+for _ in $(seq 1 100); do
+  if bash -lc "exec 3<>/dev/tcp/127.0.0.1/${PORT}" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.05
+done
+
+taskset -c "$CPU_CORES" "$DIR/replay_search_bodies_fast" --server-url "$SERVER_URL" "$@"

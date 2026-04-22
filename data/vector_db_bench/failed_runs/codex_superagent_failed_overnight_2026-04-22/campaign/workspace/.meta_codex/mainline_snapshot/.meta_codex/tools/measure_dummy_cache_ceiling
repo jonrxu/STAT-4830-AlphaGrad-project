@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DIR="$(cd "$(dirname "$0")" && pwd)"
+CRATE_DIR="$DIR/dummy_ceiling"
+DUMMY_BIN="$CRATE_DIR/target/release/dummy-cache-ceiling"
+BENCH_DIR="/opt/vector-db-bench/benchmark"
+BENCH_BIN="$BENCH_DIR/target/release/vector-db-benchmark"
+DATA_DIR="${VDB_DATA_DIR:-/opt/vdb-data}"
+PORT="${DUMMY_CACHE_CEILING_PORT:-18080}"
+SERVER_URL="http://127.0.0.1:${PORT}"
+CPU_CORES="${CPU_CORES:-0-3}"
+
+if [ ! -x "$DUMMY_BIN" ] || [ "$CRATE_DIR/src/main.rs" -nt "$DUMMY_BIN" ] || [ "$CRATE_DIR/Cargo.toml" -nt "$DUMMY_BIN" ]; then
+  cargo build --release --manifest-path "$CRATE_DIR/Cargo.toml" >/dev/null
+fi
+
+if [ ! -x "$BENCH_BIN" ]; then
+  cargo build --release --manifest-path "$BENCH_DIR/Cargo.toml" >/dev/null
+fi
+
+SERVER_LOG="$(mktemp)"
+taskset -c "$CPU_CORES" "$DUMMY_BIN" --data-dir "$DATA_DIR" --port "$PORT" >"$SERVER_LOG" 2>&1 &
+SERVER_PID="$!"
+
+cleanup() {
+  if kill -0 "$SERVER_PID" 2>/dev/null; then
+    kill "$SERVER_PID" 2>/dev/null || true
+    wait "$SERVER_PID" 2>/dev/null || true
+  fi
+  rm -f "$SERVER_LOG"
+}
+trap cleanup EXIT
+
+for _ in $(seq 1 100); do
+  if bash -lc "exec 3<>/dev/tcp/127.0.0.1/${PORT}" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.05
+done
+
+taskset -c "$CPU_CORES" "$BENCH_BIN" \
+  --server-url "$SERVER_URL" \
+  --base-vectors "$DATA_DIR/base_vectors.json" \
+  --query-vectors "$DATA_DIR/query_vectors.json" \
+  --ground-truth "$DATA_DIR/ground_truth.json" \
+  "$@"

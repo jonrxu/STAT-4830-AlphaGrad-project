@@ -1,0 +1,16 @@
+{
+  "best_cycle": 55,
+  "best_qps": 12473.441486020758,
+  "best_recall": 1.0,
+  "best_result_source": "full",
+  "current_milestone": "qps_12000",
+  "cycle": 90,
+  "goal_qps": 22000.0,
+  "goal_reached": false,
+  "invalid_cycles_since_promotion": 0,
+  "mainline_manifest_path": "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/mainline_manifest.json",
+  "mainline_snapshot_dir": "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/mainline_snapshot",
+  "next_target_qps": 16000.0,
+  "results_path": "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/results.tsv",
+  "trajectory_path": "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/trajectory.jsonl"
+}

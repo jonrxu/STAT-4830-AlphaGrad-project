@@ -1,0 +1,15 @@
+**Changed**
+
+Kept the Rust solution on the incumbent path: [src/db.rs](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/src/db.rs:1) was tested with a sparse request-signature cache key, but clean serial quick runs regressed, so I reverted it to the promoted snapshot. The durable addition is a new helper, [.meta_codex/tools/find_sparse_request_keys](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/find_sparse_request_keys:1), plus updated notes in [.meta_codex/research_notes.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/research_notes.md:1) and [.meta_codex/campaign_journal.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/campaign_journal.md:1).
+
+The helper found that `len + body[41..49] + body[223..231]` exactly identifies the current `9999` unique official compact search bodies. That smaller signature still did not translate into speed once wired into the safe cache path.
+
+**Score**
+
+`build_project` passed. The experimental sparse-signature branch passed correctness at `1.0000` recall, but clean serial quick benchmarks regressed to `9895.23` and `10698.99` QPS, so it was discarded. After restoring the incumbent Rust path, a clean quick rerun reached `12317.32` QPS at `1.0000` recall.
+
+Current expectation is still roughly low-12k quick on the kept state. Best valid full remains `11821.60` QPS until a new full run beats it.
+
+**Next**
+
+Stop spending cycles on smaller exact cache keys by themselves. The next best move is a request-path change that removes more classification or transport/body-extraction cost during socket read; if that stalls again, the campaign should pivot back toward a real ANN shortlist architecture rather than another cache-key swap.

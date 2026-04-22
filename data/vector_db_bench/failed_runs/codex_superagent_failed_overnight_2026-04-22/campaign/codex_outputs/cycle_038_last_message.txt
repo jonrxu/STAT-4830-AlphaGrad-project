@@ -1,0 +1,15 @@
+**Changed**
+
+Reworked the experimental coarse ANN branch in [src/db.rs](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/src/db.rs:344) into a real compact-shortlist stage: `VDB_COARSE_PRESCORE_*` now scans only selected coarse dims, keeps a coarse shortlist, then full-`u8` rescoring runs only on that shortlist before the existing `f16` rerank. The coarse dim selection is now compact at [src/db.rs](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/src/db.rs:2299), and the second-pass exact rescoring is in [src/db.rs](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/src/db.rs:2563).
+
+I also extended [.meta_codex/tools/sweep_coarse_prescore_dims](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/sweep_coarse_prescore_dims:18) with `--coarse-candidates`, updated the usage docs in [.meta_codex/tools/README.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/README.md:94), and recorded the cycle in [.meta_codex/strategy.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/strategy.md:10), [.meta_codex/research_notes.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/research_notes.md:274), and [.meta_codex/campaign_journal.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/campaign_journal.md:331).
+
+**Expectation**
+
+The new shortlist branch is not alive yet. Fresh local ANN baseline at `14 / 138 / 416` was `6330.30 QPS`, `0.9514` recall. The new compact-shortlist sweeps over `dims=16/24/32` and `coarse_candidates=1536/2048` cut full `u8` rescoring to `1536-2048` candidates/query, but recall collapsed to `0.6858-0.9140` and QPS regressed to `3020.34-3882.63`, so I did not spend the exact ANN benchmark on it.
+
+Default scored behavior remains valid. `build_project` succeeded, `run_correctness_test` still passed at `1.0000` recall, and today’s exact default breakdown was `10491.63 QPS` with `1100/1100` cached-search fast hits. Current score expectation is still roughly low-`10k` to low-`12k` on the official scored path, with the promoted best full result unchanged at `12466.79`.
+
+**Next Best Move**
+
+Do not spend the next cycle on more transport-only micro-tuning or on merely widening the coarse shortlist budget. The next credible branch is a stronger coarse signal or cheaper shortlist-selection kernel: residual-aware features, learned/coarser routing signals, or a lower-overhead top-`k` selector that does not turn the reduced exact-rescore count into worse overall scan time.

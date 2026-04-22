@@ -1,0 +1,13 @@
+**Changed**
+
+- Added a new opt-in `primary_residual` PQ path in [src/db.rs](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/src/db.rs:1). PQ codebooks can now be trained per primary cluster on residuals to the primary centroid, vectors are encoded with those primary-local codebooks, and search builds PQ tables per selected primary instead of one global table.
+- Extended the local harness in [measure_ann_search_only](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/measure_ann_search_only:1), [measure_ann_benchmark](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/measure_ann_benchmark:1), [sweep_ann_search_only](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/sweep_ann_search_only:1), and [sweep_ann_benchmark](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/sweep_ann_benchmark:1) with `--pq-mode`; `sweep_ann_search_only` now also passes `--prime-build` and stats flags through to each run. Notes were updated in [strategy.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/strategy.md:1), [research_notes.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/research_notes.md:1), and [campaign_journal.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/campaign_journal.md:1).
+
+**Current Expectation**
+
+- The new PQ branch is better than old global PQ, but still not viable. On a primed local `300`-query sweep at `14 / 136`, `primary_residual` improved recall up to `0.9457` at `2048` candidates, versus `0.9127` for same-point global PQ, but QPS still fell to roughly `2.8k-5.2k` and never reached the `0.95` threshold. ANN stats at `14 / 136 / 2048` still showed about `11.9k` scanned vectors/query, with scan time around `605 us`, so it is not cutting the real bottleneck.
+- I did not run the exact ANN benchmark for that branch because the local primed gate already failed. Default official behavior is still valid: `build_project` succeeded, `run_correctness_test` passed at `1.0000`, and a fresh serial quick `run_benchmark` measured `10703.26 QPS`. Practical expectation is still low-`10k` to low-`12k` on the scored path, with exact ANN still roughly mid-`5k` class.
+
+**Next Best Move**
+
+Do not spend another cycle widening primary-residual PQ budgets. The next credible move is a shortlist design that materially reduces scanned vectors before the expensive scan kernel runs, or a much cheaper ADC path if PQ stays in play. The harness is now set up to test that quickly with primed/stats sweeps.

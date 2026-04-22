@@ -1,0 +1,160 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import random
+import socket
+import threading
+import time
+import urllib.parse
+from pathlib import Path
+
+
+DEFAULT_DATA_DIR = "/opt/vdb-data"
+
+
+def compact_request_body(vector: list[float]) -> bytes:
+    return json.dumps({"vector": vector, "top_k": 10}, separators=(",", ":")).encode("utf-8")
+
+
+def load_bodies(data_dir: Path) -> list[bytes]:
+    query_path = data_dir / "query_vectors.json"
+    queries = json.loads(query_path.read_text(encoding="utf-8"))
+    return [compact_request_body(query["vector"]) for query in queries]
+
+
+def build_http_request(host_header: str, body: bytes) -> bytes:
+    headers = (
+        "POST /search HTTP/1.1\r\n"
+        "content-type: application/json\r\n"
+        "accept: */*\r\n"
+        f"host: {host_header}\r\n"
+        f"content-length: {len(body)}\r\n"
+        "\r\n"
+    ).encode("ascii")
+    return headers + body
+
+
+def read_response(sock: socket.socket, buffer: bytearray) -> None:
+    header_end = buffer.find(b"\r\n\r\n")
+    while header_end < 0:
+        chunk = sock.recv(65536)
+        if not chunk:
+            raise RuntimeError("connection closed while waiting for response headers")
+        buffer.extend(chunk)
+        header_end = buffer.find(b"\r\n\r\n")
+
+    body_start = header_end + 4
+    content_length = None
+    for line in buffer[:header_end].split(b"\r\n")[1:]:
+        if line.lower().startswith(b"content-length:"):
+            content_length = int(line.split(b":", 1)[1].strip())
+            break
+    if content_length is None:
+        raise RuntimeError("missing content-length in response")
+
+    body_end = body_start + content_length
+    while len(buffer) < body_end:
+        chunk = sock.recv(65536)
+        if not chunk:
+            raise RuntimeError("connection closed while waiting for response body")
+        buffer.extend(chunk)
+
+    del buffer[:body_end]
+
+
+def run_worker(host: str, port: int, host_header: str, requests: list[bytes]) -> None:
+    sock = socket.create_connection((host, port))
+    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    buffer = bytearray()
+    try:
+        for request in requests:
+            sock.sendall(request)
+            read_response(sock, buffer)
+    finally:
+        sock.close()
+
+
+def replay_requests(server_url: str, request_bodies: list[bytes], concurrency: int) -> float:
+    parsed = urllib.parse.urlparse(server_url)
+    if parsed.scheme != "http":
+        raise SystemExit(f"only plain http:// is supported, got: {server_url}")
+
+    host = parsed.hostname or "127.0.0.1"
+    port = parsed.port or 80
+    host_header = parsed.netloc or f"{host}:{port}"
+
+    requests = [build_http_request(host_header, body) for body in request_bodies]
+    per_worker = [[] for _ in range(concurrency)]
+    for idx, request in enumerate(requests):
+        per_worker[idx % concurrency].append(request)
+
+    threads = [
+        threading.Thread(
+            target=run_worker,
+            args=(host, port, host_header, worker_requests),
+            daemon=True,
+        )
+        for worker_requests in per_worker
+    ]
+
+    start = time.perf_counter()
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    return time.perf_counter() - start
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Replay official compact /search bodies over persistent sockets to measure search-only HTTP throughput."
+    )
+    parser.add_argument("--server-url", default="http://127.0.0.1:8080")
+    parser.add_argument("--data-dir", default=os.environ.get("VDB_DATA_DIR", DEFAULT_DATA_DIR))
+    parser.add_argument("--queries", type=int, default=1000)
+    parser.add_argument("--warmup", type=int, default=100)
+    parser.add_argument("--concurrency", type=int, default=4)
+    parser.add_argument("--seed", type=int, default=42)
+    args = parser.parse_args()
+
+    data_dir = Path(args.data_dir)
+    bodies = load_bodies(data_dir)
+    rng = random.Random(args.seed)
+    rng.shuffle(bodies)
+
+    warmup_count = min(args.warmup, len(bodies))
+    measured_count = min(args.queries, max(0, len(bodies) - warmup_count))
+
+    warmup_bodies = bodies[:warmup_count]
+    measured_bodies = bodies[warmup_count : warmup_count + measured_count]
+
+    if warmup_bodies:
+        replay_requests(args.server_url, warmup_bodies, args.concurrency)
+
+    duration_secs = replay_requests(args.server_url, measured_bodies, args.concurrency)
+    qps = (measured_count / duration_secs) if duration_secs > 0 else 0.0
+
+    print(
+        json.dumps(
+            {
+                "type": "ReplaySearchBodies",
+                "server_url": args.server_url,
+                "data_dir": str(data_dir),
+                "warmup": warmup_count,
+                "total_queries": measured_count,
+                "concurrency": args.concurrency,
+                "duration_secs": duration_secs,
+                "qps": qps,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

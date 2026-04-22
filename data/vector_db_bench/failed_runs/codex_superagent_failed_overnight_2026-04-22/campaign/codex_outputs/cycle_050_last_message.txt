@@ -1,0 +1,13 @@
+**Changed**
+
+Added `VDB_LOCAL_SUBCLUSTER_ROUTING` in [src/db.rs](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/src/db.rs:29) and wired it through [measure_ann_search_only](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/measure_ann_search_only:86), [measure_ann_benchmark](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/measure_ann_benchmark:52), [sweep_ann_search_only](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/sweep_ann_search_only:46), and [sweep_ann_benchmark](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/sweep_ann_benchmark:46). I also updated [tools/README.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/README.md:49), [campaign_journal.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/campaign_journal.md:434), [research_notes.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/research_notes.md:352), [strategy.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/strategy.md:11), and added [cycle_050.json](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/recent_cycles/cycle_050.json:1).
+
+**Results**
+
+The new selector knob is benchmarkable, but it did not revive the parked local-subcluster branch. On the primed local gate at `14 / 138 / 384`, `target 24 / probe 1` stayed around `0.651` recall for both `u8` and `f32`; `probe 2` stayed around `0.8467`; and the adaptive `--enable-cluster-prune` point stayed at `0.9483` with about `12.0k` scanned vectors/query for both modes. I also tried a direct-buffer read rewrite on the default cache path and reverted it after the exact wrapper only moved `11279.98 -> 11323.56` QPS while `avg_search_read_request_us` got worse.
+
+**Validation**
+
+Kept state is clean: `build_project` succeeded, `run_correctness_test` passed at `1.0000`, and a fresh quick `run_benchmark` reached `11849.04 QPS` at `1.0000` recall. Current expectation is still low-`12k` quick on the scored cache path and mid-`5k` exact on ANN.
+
+Next best move is a stronger subcluster or residual shortlist signal, likely cluster-local codebooks or another routing stage that changes the recall curve itself. Local-centroid routing precision alone and transport read-path micro-tuning are both parked.

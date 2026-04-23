@@ -64,6 +64,14 @@ class Hyperparameters:
 
     # EMA.
     ema_decay = float(os.environ.get("EMA_DECAY", 0.997))
+    # Early stopping on validation BPB plateau.
+    # Enabled by default for exploration runs:
+    # - wait until at least step 1000
+    # - require at least 0.002 BPB improvement
+    # - stop after 2 consecutive non-improving validations
+    early_stop_patience = int(os.environ.get("EARLY_STOP_PATIENCE", 2))
+    early_stop_min_delta = float(os.environ.get("EARLY_STOP_MIN_DELTA", 0.002))
+    early_stop_start_step = int(os.environ.get("EARLY_STOP_START_STEP", 1000))
 
     # Model shape.
     vocab_size = int(os.environ.get("VOCAB_SIZE", 1024))
@@ -1035,6 +1043,10 @@ def main() -> None:
         f"iterations:{args.iterations} warmup_steps:{args.warmup_steps} "
         f"max_wallclock_seconds:{args.max_wallclock_seconds:.3f}"
     )
+    log0(
+        f"early_stop:patience={args.early_stop_patience} min_delta={args.early_stop_min_delta} "
+        f"start_step={args.early_stop_start_step}"
+    )
     log0(f"seed:{args.seed}")
 
     # -----------------------------
@@ -1094,6 +1106,8 @@ def main() -> None:
 
     training_time_ms = 0.0
     stop_after_step: int | None = None
+    best_val_bpb = float("inf")
+    plateau_bad_evals = 0
     torch.cuda.synchronize()
     t0 = time.perf_counter()
 
@@ -1130,6 +1144,23 @@ def main() -> None:
                 f"step:{step}/{args.iterations} val_loss:{val_loss:.4f} val_bpb:{val_bpb:.4f} "
                 f"train_time:{training_time_ms:.0f}ms step_avg:{training_time_ms / max(step, 1):.2f}ms"
             )
+            if args.early_stop_patience > 0 and step >= args.early_stop_start_step:
+                improved = (best_val_bpb - val_bpb) > args.early_stop_min_delta
+                if improved:
+                    best_val_bpb = val_bpb
+                    plateau_bad_evals = 0
+                else:
+                    plateau_bad_evals += 1
+                log0(
+                    f"plateau_check:step={step} best_val_bpb={best_val_bpb:.6f} "
+                    f"current_val_bpb={val_bpb:.6f} bad_evals={plateau_bad_evals}/{args.early_stop_patience}"
+                )
+                if plateau_bad_evals >= args.early_stop_patience and stop_after_step is None:
+                    stop_after_step = step
+                    log0(
+                        f"stopping_early: plateau step:{step} best_val_bpb:{best_val_bpb:.6f} "
+                        f"patience:{args.early_stop_patience} min_delta:{args.early_stop_min_delta}"
+                    )
             torch.cuda.synchronize()
             t0 = time.perf_counter()
 

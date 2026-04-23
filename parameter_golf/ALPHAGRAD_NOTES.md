@@ -51,7 +51,7 @@ Full leaderboard in `/records/track_10min_16mb/*/submission.json`.
 - **Artifact**: `output/final_model_latest.int8.ptz` — **10.888 MB** (well under 16 MB)
 - **Expected val_bpb**: ~1.22–1.23 (matches public baseline; ~1.2244 is the published score for identical config)
 
-### What We've Implemented (not yet run end-to-end)
+### What We've Implemented (exploration stack)
 
 Changes in `train_gpt_exploration.py` relative to the baseline:
 
@@ -75,9 +75,10 @@ Changes in `train_gpt_exploration.py` relative to the baseline:
 ```
 parameter_golf/
 ├── train_gpt_exploration.py   ← Our modified training script (all changes live here)
-├── modal_exploration.py       ← Modal app: dispatches train_gpt_exploration.py to 8×H100
+├── modal_exploration.py       ← Modal app: supports approach presets, preflight checks, and run logging
 ├── output/
-│   └── final_model_latest.int8.ptz  ← Artifact from Run 2 (10.888 MB)
+│   ├── final_model_latest.int8.ptz  ← Artifact from Run 2 (10.888 MB)
+│   └── iteration_log.txt            ← Auto-appended run records (approach, BPB, artifact size)
 ├── FINDINGS.md                ← Technique analysis: BPB estimates, leaderboard context
 ├── Overview.md                ← Medium-level challenge overview
 ├── alphagrad/
@@ -136,7 +137,7 @@ modal run alphagrad/modal_runner.py
 modal run modal_exploration.py --max-wallclock 30
 ```
 
-**Full baseline run (10 minutes, 8×H100)**
+**Full baseline-ish exploration run (10 minutes, 8×H100)**
 ```powershell
 modal run modal_exploration.py
 ```
@@ -146,7 +147,25 @@ modal run modal_exploration.py
 modal run modal_exploration.py --iterations 20000 --max-wallclock 600
 ```
 
-The script streams all training logs to your terminal and saves the artifact to `output/final_model_<run_id>.int8.ptz`.
+**PR1493-style shallow recurrence preset (legal score-first TTT stack)**
+```powershell
+modal run modal_exploration.py --approach pr1493_shallow_recurrence_pass_scaled --iterations 3000 --max-wallclock 600
+```
+
+The script streams all training logs to your terminal and saves artifacts as:
+- `output/final_model_<run_id>.int8.ptz` or
+- `output/final_model_<run_id>.int6.ptz`
+
+Additionally, each run appends one line to `output/iteration_log.txt`.
+
+### Preflight behavior
+
+`modal_exploration.py` now checks Modal volume readiness before launching training:
+- tokenizer exists at `/pg_data/tokenizers/fineweb_1024_bpe.model`
+- train shard(s) exist in `/pg_data/datasets/fineweb10B_sp1024`
+- val shard(s) exist in `/pg_data/datasets/fineweb10B_sp1024`
+
+If missing, it exits early with instructions to run `modal run alphagrad/modal_runner.py`.
 
 ### Step 3 — Interpreting output
 
@@ -178,6 +197,10 @@ All hyperparameters can be overridden via environment variables. Set them in the
 | `VOCAB_SIZE` | 1024 | Tokenizer vocabulary size |
 | `ITERATIONS` | 20000 | Training steps |
 | `MAX_WALLCLOCK_SECONDS` | 600 | Hard stop for training (seconds) |
+| `EARLY_STOP_PATIENCE` | 2 | Plateau stop after this many non-improving validations |
+| `EARLY_STOP_MIN_DELTA` | 0.002 | Minimum BPB improvement to reset plateau counter |
+| `EARLY_STOP_START_STEP` | 1000 | Plateau logic starts at this step |
+| `SERIALIZATION_BUFFER_SECONDS` | 900 | Extra subprocess time for save + roundtrip eval |
 | `WARMDOWN_ITERS` | 1200 | LR warmdown steps |
 | `WARMUP_STEPS` | 20 | Compile-warmup steps before training timer starts |
 | `TRAIN_BATCH_TOKENS` | 524288 | Global tokens per step (512K) |
@@ -245,7 +268,9 @@ See `FINDINGS.md` for full analysis with citations.
 |-------|-------|-----|
 | `modal.gpu has no attribute H100` | Old Modal version uses string GPU spec | Use `gpu="h100:8"` not `modal.gpu.H100(count=8)` |
 | `Failed to find C compiler (CC)` | `pytorch:...-runtime` image lacks gcc | `exploration_image.apt_install("gcc")` in Modal image |
-| `No artifact produced` | `subprocess.TimeoutExpired` killed before serialization | Increase `proc_timeout` (now: wallclock + 600s) |
+| `No artifact produced` + run crashed at tokenizer init | Missing Modal volume files | Run `modal run alphagrad/modal_runner.py` in same Modal account/profile |
+| `No artifact produced` but final BPB exists | Artifact extension mismatch (`.int6.ptz` vs `.int8.ptz`) | Runner now detects/saves both `.int8.ptz` and `.int6.ptz` |
+| `No artifact produced` due to timeout | Process ended before serialization tail | Runner budget now includes `wallclock + 600 + SERIALIZATION_BUFFER_SECONDS` |
 | `val_bpb: 4.1+` | Too few training steps | Normal for short tests; need ≥5000 steps for meaningful BPB |
 | `asyncio deprecation warning` | Python ≥ 3.12 + Modal CLI | Use Python 3.11 venv |
 | `Got unexpected extra arguments` | Old Modal `local_entrypoint` style | Use typed params in `main()`, no `argparse` |

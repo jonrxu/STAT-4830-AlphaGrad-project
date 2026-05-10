@@ -2,6 +2,8 @@
 docs/figures/*
 !docs/figures/*.png
 !docs/figures/*.tex
+api_key.txt
+local/api_key.txt
 
 .env
 __pycache__/

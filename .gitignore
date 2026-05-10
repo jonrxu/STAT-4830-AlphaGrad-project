@@ -4,3 +4,21 @@ docs/figures/*
 !docs/figures/*.tex
 api_key.txt
 local/api_key.txt
+
+.env
+__pycache__/
+*.pyc
+
+local/
+
+data/airbench/autoresearch_runs/
+data/airbench/codex_cli_runs/
+data/vector_db_bench/codex_cli_runs/
+data/vector_db_bench/
+
+# Local Parameter Golf environment and downloaded artifacts
+parameter_golf/.venv/
+parameter_golf/data/datasets/
+parameter_golf/data/tokenizers/
+parameter_golf/GPU_key.txt
+parameter_golf/remote_target.txt

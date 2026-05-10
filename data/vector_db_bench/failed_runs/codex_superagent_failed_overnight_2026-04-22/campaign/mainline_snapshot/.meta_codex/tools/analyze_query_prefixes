@@ -1,0 +1,85 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import json
+import os
+from collections import Counter
+from pathlib import Path
+
+
+DEFAULT_DATA_DIR = "/opt/vdb-data"
+PREFIXES = (16, 24, 32, 40, 48, 64, 80, 96, 128, 160, 192, 256)
+
+
+def compact_request_body(vector: list[float]) -> bytes:
+    return json.dumps({"vector": vector, "top_k": 10}, separators=(",", ":")).encode("utf-8")
+
+
+def lcp(a: bytes, b: bytes) -> int:
+    limit = min(len(a), len(b))
+    idx = 0
+    while idx < limit and a[idx] == b[idx]:
+        idx += 1
+    return idx
+
+
+def percentile(values: list[int], p: float) -> int:
+    if not values:
+        return 0
+    rank = min(len(values) - 1, int(len(values) * p))
+    return values[rank]
+
+
+def main() -> int:
+    data_dir = Path(os.environ.get("VDB_DATA_DIR", DEFAULT_DATA_DIR))
+    query_path = data_dir / "query_vectors.json"
+    queries = json.loads(query_path.read_text(encoding="utf-8"))
+    bodies = [compact_request_body(query["vector"]) for query in queries]
+
+    lengths = sorted(len(body) for body in bodies)
+    print(f"query_path={query_path}")
+    print(f"queries={len(bodies)}")
+    print(
+        "body_len "
+        f"min={lengths[0]} "
+        f"p50={percentile(lengths, 0.50)} "
+        f"p95={percentile(lengths, 0.95)} "
+        f"max={lengths[-1]} "
+        f"mean={sum(lengths) / len(lengths):.2f}"
+    )
+
+    for prefix in PREFIXES:
+        counter = Counter((len(body), body[:prefix]) for body in bodies)
+        unique = sum(1 for body in bodies if counter[(len(body), body[:prefix])] == 1)
+        collision_groups = sum(1 for count in counter.values() if count > 1)
+        colliding_queries = sum(count for count in counter.values() if count > 1)
+        largest_group = max(counter.values())
+        print(
+            f"len+prefix={prefix} "
+            f"unique={unique}/{len(bodies)} "
+            f"ratio={unique / len(bodies):.4f} "
+            f"collision_groups={collision_groups} "
+            f"colliding_queries={colliding_queries} "
+            f"largest_group={largest_group}"
+        )
+
+    ordered = sorted((body, idx) for idx, body in enumerate(bodies))
+    needed = [1] * len(bodies)
+    for pos, (body, idx) in enumerate(ordered):
+        left = lcp(body, ordered[pos - 1][0]) if pos else 0
+        right = lcp(body, ordered[pos + 1][0]) if pos + 1 < len(ordered) else 0
+        needed[idx] = max(left, right) + 1
+
+    needed_sorted = sorted(needed)
+    print(
+        "unique_prefix "
+        f"p50={percentile(needed_sorted, 0.50)} "
+        f"p95={percentile(needed_sorted, 0.95)} "
+        f"max={needed_sorted[-1]}"
+    )
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

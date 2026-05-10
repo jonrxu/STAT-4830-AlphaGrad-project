@@ -1,0 +1,13 @@
+{
+  "bench_repo": "/opt/vector-db-bench",
+  "cpu_cores": "0-3",
+  "cycle": 90,
+  "data_dir": "/opt/vdb-data",
+  "goal_qps": 22000.0,
+  "modal_script_path": "",
+  "repo_root": "/opt",
+  "run_root": "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign",
+  "tool_calls_total": 2147483647,
+  "use_modal_eval": false,
+  "workspace": "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace"
+}

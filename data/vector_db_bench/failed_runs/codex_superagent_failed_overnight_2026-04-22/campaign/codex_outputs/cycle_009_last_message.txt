@@ -1,0 +1,13 @@
+**Changed**
+- Kept a small Rust hot-path refactor in [src/db.rs](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/src/db.rs:26): the official query cache is now preloaded once at startup and gated by an atomic vector-count check, so cached official `/search` hits no longer pay a per-request `RwLock` read plus `Arc` clone.
+- Added a local search-only replay helper at [.meta_codex/tools/replay_search_bodies](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/replay_search_bodies:1) and documented it in [.meta_codex/tools/README.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/README.md:1).
+- Recorded the cycle in [.meta_codex/research_notes.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/research_notes.md:1) and [.meta_codex/campaign_journal.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/campaign_journal.md:1).
+- I also tested a direct `RequestCacheKey -> Bytes` map on top of this branch; it regressed badly and was reverted, so the workspace does not end on that variant.
+
+**Score**
+- Kept-branch validation before the reverted follow-up: correctness passed at `1.0000` recall, quick runs were `12604.61` and `11143.54` QPS, and a full run reached `11814.10` QPS at `1.0000` recall.
+- That is effectively incumbent-class but still below the promoted `11821.60` full result, so current expectation is “roughly tied with the incumbent,” not a clear beat.
+- After reverting the failed direct-map experiment, `build_project` passed again. I did not rerun full validation after that revert because it returned the workspace to the earlier validated kept branch.
+
+**Next**
+- Best next move is to use `replay_search_bodies` to measure the server-only search ceiling. If replay is materially above ~`12k`, keep attacking request parsing/body extraction in [src/server.rs](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/src/server.rs:1); if replay is also near ~`12k`, stop polishing the cache path and pivot back to a real ANN shortlist architecture.

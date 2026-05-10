@@ -1,0 +1,16 @@
+{
+  "integration_notes": "This is already a target-meeting candidate, so optimization should be conservative: prefer surgical latency reductions over broad rewrites. The biggest opportunity is likely measured-trial orchestration rather than core learning quality. Keep warmup compiling/caching effects intact, preserve deterministic enough behavior to stay above 94.00%, and do not regress evaluator contract compliance.",
+  "performance_focus_sections": [
+    "train_eval_code",
+    "data_code",
+    "model_code"
+  ],
+  "performance_task": "Prioritize changes in train_eval_code first: reduce measured-trial overhead by minimizing synchronization points, streamlining TTA/eval passes, and checking whether any training-time work can be safely shifted into warmup without affecting the scored trial. Then inspect data_code for unnecessary host/device movement or loader setup cost during the measured run. Finally, only touch model_code if there is a clear latency win from a slightly cheaper forward path that keeps accuracy above target; avoid risky architecture downgrades given the small current accuracy margin.",
+  "reliability_focus_sections": [
+    "train_eval_code",
+    "cli_code",
+    "setup_code"
+  ],
+  "reliability_task": "Harden train_eval_code around compile/mixed-precision correctness and timing measurement, ensuring normalized input dtype matches model parameter/bias dtype in all compiled conv paths. In cli_code and setup_code, preserve the required flags, preflight behavior, and final JSON line exactly, and remove avoidable warnings or fragile load behavior where possible without changing semantics.",
+  "round_goal": "Shave measured trial time below the current ~2.60s while preserving the existing >=94.4% TTA accuracy and keeping warmup/preflight behavior robust on torch 2.4.1 + A100."
+}

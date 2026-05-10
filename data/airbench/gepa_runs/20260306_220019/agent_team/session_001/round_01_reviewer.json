@@ -1,0 +1,15 @@
+{
+  "approve": false,
+  "issues": [
+    "`model.compile(mode=\"max-autotune\")` is not a stable nn.Module API across PyTorch versions; safer contract is `model = torch.compile(model, mode=...)`. This is a likely source of the observed runtime_error regression.",
+    "Inference hard-codes `test_images.split(2000)` instead of using the loader batch size, which is a brittle contract violation if eval batch size changes.",
+    "`CifarLoader` always loads tensors directly onto CUDA during construction; this can fail in less permissive environments and increases startup fragility compared with CPU load + explicit transfer.",
+    "Warmup runs a full dummy-label training trial, adding substantial remote runtime without improving measured score; risky if evaluator time budget changes.",
+    "`safe_torch_load(..., weights_only=True)` fallback is fine, but saving dataset tensors with Python objects (`classes`) still couples format to pickle behavior/version details.",
+    "The optimization changes do not yet clear the target (0.9397 < 0.94), so extra complexity/instability is not justified by a demonstrated gain.",
+    "Custom `Muon.step()` raises on any non-finite grad; combined with aggressive half/bfloat16 math and compiled Newton-Schulz kernel, this is a repeated failure mode candidate.",
+    "Parameter normalization inside `Muon.step()` (`p.data.mul_(len(p.data) ** 0.5 / p_norm)`) is unusual and could cause silent regressions or instability across seeds.",
+    "Preflight does not exercise optimizer steps, so it may miss the exact runtime path that later fails during training/compiled optimizer execution."
+  ],
+  "summary": "Do not approve: one prior runtime_error is plausibly caused by a real compile/API incompatibility, and the current code is only ~0.03% below target with no clear accuracy win to justify added risk."
+}

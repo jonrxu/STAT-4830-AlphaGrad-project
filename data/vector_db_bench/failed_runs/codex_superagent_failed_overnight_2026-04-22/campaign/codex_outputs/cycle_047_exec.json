@@ -1,0 +1,26 @@
+{
+  "argv": [
+    "/usr/local/bin/codex",
+    "exec",
+    "--ephemeral",
+    "--skip-git-repo-check",
+    "--color",
+    "never",
+    "--json",
+    "--sandbox",
+    "danger-full-access",
+    "-C",
+    "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace",
+    "--output-last-message",
+    "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/codex_outputs/cycle_047_last_message.txt",
+    "--enable",
+    "web_search_request",
+    "-"
+  ],
+  "events_path": "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/codex_outputs/cycle_047_events.jsonl",
+  "last_message": "Changed the workspace in two places: `src/db.rs` now has a default-off block-bound pruning experiment for the ANN flat path, and the local harness wrappers under `.meta_codex/tools/` now support `--enable-block-bound-prune` / `--block-bound-dims` in both one-off and sweep flows. I also recorded the cycle in `.meta_codex/strategy.md`, `.meta_codex/research_notes.md`, `.meta_codex/campaign_journal.md`, and `.meta_codex/recent_cycles/cycle_047.json`.\n\nResults were negative for the new ANN branch, so I did not spend the exact ANN gate on it. On the primed `300`-query local gate at `14 / 138 / 384` with `u8` routing, the current flat path measured `6073.53 QPS`, `0.9480` recall; disabling vector-radius pruning dropped to `5775.61`, same recall; block-bound pruning with `8` dims fell further to `4836.42`, same recall, and pruned only about `0.25` vectors/query. I also rechecked true global local-subcluster probing and it stayed far below recall (`~0.59-0.75`), so that path is still parked.\n\nThe kept official state is still valid: `build_project` succeeded, `run_correctness_test` passed at `1.0000` recall, and a fresh serial quick `run_benchmark` reached `11025.40 QPS`, `1.0000` recall. Current score expectation is unchanged: the official default scorer is still roughly low-`11k` quick / low-`12k` full territory on this host, and the best exact ANN expectation remains the existing mid-`5k` flat `u8` branch rather than anything from this cycle.\n\nNext best move: stop spending cycles on selector-only pruning ideas that leave scanned vectors near `12k/query`. The strongest follow-on is a materially stronger shortlist signal, most likely a residual-aware cluster-local PQ/codebook path or a geometry revisit that can actually change the scan budget before rerank.",
+  "returncode": 0,
+  "runtime_seconds": 1168.5375406742096,
+  "stderr": "2026-04-22T08:28:31.293903Z ERROR codex_core::tools::router: error=write_stdin failed: stdin is closed for this session; rerun exec_command with tty=true to keep stdin open\n2026-04-22T08:28:31.294514Z ERROR codex_core::tools::router: error=write_stdin failed: stdin is closed for this session; rerun exec_command with tty=true to keep stdin open\n2026-04-22T08:28:31.295708Z ERROR codex_core::tools::router: error=write_stdin failed: stdin is closed for this session; rerun exec_command with tty=true to keep stdin open\n2026-04-22T08:28:51.338623Z ERROR codex_core::tools::router: error=agent ids must be non-empty\n2026-04-22T08:33:07.280700Z ERROR codex_core::tools::router: error=apply_patch verification failed: Failed to find expected lines in /__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/research_notes.md:\nCycle 46 findings:\n- Improved the parked coarse-shortlist kernel instead of widening another budget sweep. `src/distance.rs` now has a batched arbitrary-width `u8` subspace-distance path, and `src/db.rs` now routes compact-shortlist rescoring through the same cutoff-aware batch heap helper used by the flat scan path.\n- Added `.meta_codex/tools/compare_ann_coarse_shortlist`, a narrow local harness wrapper that repeats the same search-only point with and without coarse prescore enabled and reports paired QPS / recall / ANN scan summaries.\n- The cheaper selector kernel improved the parked coarse branch, but not enough to matter. On a paired 2-run primed `300`-query local comparison at `14 / 138 / 416`, the flat baseline averaged about `6385.01 QPS`, `0.9480` recall with about `203.05 us` scan time, while `cluster`, `32 / 2048` averaged about `4880.11 QPS`, `0.9390` with about `395.13 us` scan time.\n- The failure mode did not change: scanned vectors stayed effectively flat at about `12.06k/query` baseline versus about `12.05k/query` on the coarse branch, so the branch is still paying extra shortlist work without reducing the real candidate count. Do not pay the exact ANN benchmark for this kernel-only coarse update; the next coarse follow-on still needs a materially stronger signal, not another selector-only micro-optimization.\n",
+  "timed_out": false
+}

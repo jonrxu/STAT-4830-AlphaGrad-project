@@ -1,0 +1,26 @@
+{
+  "argv": [
+    "/usr/local/bin/codex",
+    "exec",
+    "--ephemeral",
+    "--skip-git-repo-check",
+    "--color",
+    "never",
+    "--json",
+    "--sandbox",
+    "danger-full-access",
+    "-C",
+    "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace",
+    "--output-last-message",
+    "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/codex_outputs/cycle_029_last_message.txt",
+    "--enable",
+    "web_search_request",
+    "-"
+  ],
+  "events_path": "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/codex_outputs/cycle_029_events.jsonl",
+  "last_message": "**Changed**\n\nAdded ANN-local search instrumentation in [src/db.rs](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/src/db.rs:1) and exposed it through [measure_ann_search_only](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/measure_ann_search_only:1) as `--include-ann-stats`. I also kept a locality cleanup in the ANN fallback: non-pruned cluster scans now run in cluster-id order, and rerank candidates are sorted before the `f16` pass. The hybrid prune retry stays experimental behind `VDB_ENABLE_CLUSTER_PRUNE`. I updated [strategy.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/strategy.md:1), [research_notes.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/research_notes.md:1), [campaign_journal.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/campaign_journal.md:1), and [tools/README.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/README.md:1).\n\n**Current expectation**\n\nClean serial default-path validation is still official and valid: correctness passed at `1.0000` recall, and the quick benchmark reached `11500.94 QPS`. On the ANN side, the best local search-only point this cycle was `14 / 136 / 576` at `6243.95 QPS`, `0.9505` recall. The new ANN stats show the real steady-state issue: this path still scans about `12.2k` vectors/query, with roughly `153 us` in routing, `277 us` in scan, and only `49 us` in rerank. Clean exact ANN quick runs with cache disabled stayed only around `4275-4282 QPS` at roughly `0.953` recall, so this cycle does not improve the validated ANN frontier.\n\n**Next best move**\n\nAttack scanned-vector count directly. The current centroid-radius prune signal is too weak, and the hybrid retry barely pruned anything. The next credible branch is a stronger shortlist stage or per-cluster substructure that materially cuts the `~12k` scanned-vector budget before exact validation. Use `measure_ann_search_only --include-ann-stats` to cull ideas quickly, but keep the exact official wrapper as the decision gate.\n\nPublic-target context is unchanged as of April 22, 2026: [Lushbinary\u2019s April 8, 2026 writeup](https://lushbinary.com/blog/glm-5-1-vectordbbench-6000-tool-calls-21k-qps/) still describes the `21.5k` ANN class, and the official benchmark site is [Vector DB Bench](https://vector-db-bench.kcores.com/).",
+  "returncode": 0,
+  "runtime_seconds": 1205.1793100833893,
+  "stderr": "",
+  "timed_out": false
+}

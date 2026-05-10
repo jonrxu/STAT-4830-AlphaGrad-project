@@ -1,0 +1,65 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+
+def load_benchmarks(workspace: Path) -> list[dict]:
+    bench_dir = workspace / "benchmarks"
+    rows = []
+    for path in sorted(bench_dir.glob("benchmark_*.json")):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if isinstance(payload, dict):
+            payload["_path"] = str(path)
+            rows.append(payload)
+    return rows
+
+
+def fmt(row: dict) -> str:
+    qps = float(row.get("qps", 0.0) or 0.0)
+    recall = float(row.get("recall", 0.0) or 0.0)
+    passed = bool(row.get("recall_passed", False))
+    total_queries = int(row.get("total_queries", 0) or 0)
+    concurrency = int(row.get("concurrency", 0) or 0)
+    mode = "full" if total_queries >= 10_000 else "quick"
+    label = "valid" if passed else "invalid"
+    return (
+        f"{label:7} {mode:5} qps={qps:8.2f} recall={recall:.4f} "
+        f"queries={total_queries:5} conc={concurrency} {row.get('_path', '')}"
+    )
+
+
+def main() -> int:
+    workspace = Path(__file__).resolve().parents[2]
+    rows = load_benchmarks(workspace)
+    if not rows:
+        print("No benchmark history found.")
+        return 0
+
+    valid = [row for row in rows if row.get("recall_passed")]
+    best_valid = max(valid, key=lambda row: float(row.get("qps", 0.0) or 0.0), default=None)
+    latest = rows[-1]
+
+    print("Latest:")
+    print(fmt(latest))
+
+    if best_valid is not None:
+        print("Best valid:")
+        print(fmt(best_valid))
+    else:
+        print("Best valid:")
+        print("none")
+
+    print("History:")
+    for row in rows:
+        print(fmt(row))
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

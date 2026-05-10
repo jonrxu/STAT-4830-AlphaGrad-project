@@ -1,0 +1,16 @@
+{
+  "integration_notes": "Most leverage is in train_eval_code because current accuracy misses target by only 0.03 percentage points. Prefer surgical changes: slightly stronger augmentation, better LR/weight-decay scheduling, optional EMA, or a cheap richer TTA. data_code should support any augmentation/eval batching changes without CPU bottlenecks. Touch model_code only for low-risk incremental capacity/stability tweaks. Keep cli_code contract unchanged and ensure preflight exercises the compiled forward/backward path.",
+  "performance_focus_sections": [
+    "train_eval_code",
+    "data_code",
+    "model_code"
+  ],
+  "performance_task": "Tune the train/eval pipeline for a marginal accuracy lift with minimal time cost: improve augmentation/schedule/EMA-or-TTA details first, then consider a lightweight model adjustment only if it does not materially increase the 2.6s measured trial time. Keep compile-friendly, AMP-safe execution and exploit the A100 with efficient batch sizing and evaluation batching.",
+  "reliability_focus_sections": [
+    "train_eval_code",
+    "cli_code",
+    "setup_code"
+  ],
+  "reliability_task": "Eliminate runtime fragility from compiled half-precision paths and trial orchestration: add a robust preflight, ensure dtype consistency for normalized inputs and model params/biases, make warmup/trial state resets deterministic, and harden CLI/JSON output so failures do not recur.",
+  "round_goal": "Push measured TTA accuracy just over 94.00% while preserving the current fast post-warmup trial time; prioritize small accuracy gains in training/eval logic over broad rewrites."
+}

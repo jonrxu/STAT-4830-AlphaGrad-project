@@ -1,0 +1,26 @@
+{
+  "argv": [
+    "/usr/local/bin/codex",
+    "exec",
+    "--ephemeral",
+    "--skip-git-repo-check",
+    "--color",
+    "never",
+    "--json",
+    "--sandbox",
+    "danger-full-access",
+    "-C",
+    "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace",
+    "--output-last-message",
+    "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/codex_outputs/cycle_046_last_message.txt",
+    "--enable",
+    "web_search_request",
+    "-"
+  ],
+  "events_path": "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/codex_outputs/cycle_046_events.jsonl",
+  "last_message": "Changed:\n- I improved the parked coarse-shortlist path in [src/distance.rs](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/src/distance.rs:1) and [src/db.rs](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/src/db.rs:1) by adding a batched arbitrary-width `u8` subspace scan for the common `<=32`-dim branch and reusing cutoff-aware batch heap updates during coarse rescoring.\n- I added [compare_ann_coarse_shortlist](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/compare_ann_coarse_shortlist:1) and documented it in [.meta_codex/tools/README.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/README.md:1), so future cycles can run paired local flat-vs-coarse A/Bs without hand-comparing noisy runs.\n- I updated [.meta_codex/strategy.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/strategy.md:1), [.meta_codex/research_notes.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/research_notes.md:1), and [.meta_codex/campaign_journal.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/campaign_journal.md:1). I also tried a coarse min/max bound filter and removed it after it failed to prune anything.\n\nCurrent expectation:\n- The official workspace is still valid: `run_correctness_test` passed at `1.0000` recall.\n- The new coarse kernel is directionally better but still not promotable. On a paired 2-run primed local comparison at `14 / 138 / 416`, flat averaged `6385.01 QPS`, `0.9480` recall, while coarse `cluster 32 / 2048` averaged `4880.11 QPS`, `0.9390`.\n- Scanned vectors stayed essentially unchanged at about `12.05k/query`, so I did not spend the exact ANN gate. Score expectation is therefore unchanged: default scored path still roughly low-`10k` to low-`13k`, and the best exact ANN expectation remains mid-`5k`.\n\nNext best move:\n- Stop paying cycles for selector-only coarse tweaks. The next credible ANN step is a stronger shortlist signal that actually cuts scanned vectors, likely cluster-local residual PQ/codebooks or another residual-aware shortlist stage, with [compare_ann_coarse_shortlist](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/compare_ann_coarse_shortlist:1) used as the local culling gate before any exact validation.",
+  "returncode": 0,
+  "runtime_seconds": 1075.49041223526,
+  "stderr": "2026-04-22T08:13:12.488651Z ERROR codex_core::tools::router: error=apply_patch verification failed: Failed to find expected lines in /__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/research_notes.md:\nCycle 45 findings:\n- The fast exact ANN gate was noisier than the accumulated journal story implied. A new `.meta_codex/tools/measure_ann_benchmark_stability` helper now repeats one exact ANN point and summarizes the spread, and a 3-run fast rerun finally made the explicit routing decision stable enough to keep: at `14 / 138 / 384`, explicit `u8` routing off averaged about `5041.16 QPS`, `0.9531` recall while explicit `u8` routing on averaged about `5601.15`, `0.9532`.\n- A new flat-path scan cleanup survived the local gate. The batch `u8` scanner now skips heap work for distances that already miss the live cutoff; on the primed local `300`-query gate at `14 / 138 / 384`, average scan time moved from about `219.29 us` to about `206.01 us` with recall unchanged on that sample.\n- Exact ANN anatomy still points at shortlist weakness, not rerank cost. A stats-enabled exact run on the kept `14 / 138 / 384` point with `u8` routing still scanned about `12.32k` vectors/query, with route time about `168 us`, scan about `216 us`, and rerank about `39 us`.\n- Default scored-path breakdown checks still showed the same cache-limited transport picture: a `200`-query exact breakdown stayed at `300/300` cached-search fast hits with `0` search fallbacks and `0` search `process_request` time. The low-`10k` quick scores this cycle were noise on the known cache ceiling, not evidence that the default path changed.\n",
+  "timed_out": false
+}

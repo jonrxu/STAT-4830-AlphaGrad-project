@@ -1,0 +1,16 @@
+{
+  "integration_notes": "This round should favor small, testable speed edits over broad rewrites because the current candidate already barely clears target accuracy. Any change that touches compile, AMP, custom norms, or tensor layout must be validated through preflight and warmup since the last runtime error likely came from that interaction surface. Keep the final script standalone and contract-compatible, and prefer modifications that can be isolated to train/eval scheduling and inference/TTA cost before altering the architecture.",
+  "performance_focus_sections": [
+    "train_eval_code",
+    "data_code",
+    "model_code"
+  ],
+  "performance_task": "Concentrate on the hot path in train_eval_code first: shrink total train steps and evaluation overhead without crossing below the 94% margin. Explore a slightly more aggressive schedule, fewer or fused TTA passes, and tighter train/eval batch sizing tuned for A100 throughput. In data_code, minimize loader and transfer overhead by ensuring preloaded/cached tensors, channels-last where beneficial, pinned/non_blocking movement only if still using host staging, and no unnecessary dtype conversions. In model_code, only pursue low-risk throughput wins such as channels-last friendly ops, leaner normalization/activation choices, or compile-stable simplifications; avoid architectural changes that require extensive retuning.",
+  "reliability_focus_sections": [
+    "train_eval_code",
+    "setup_code",
+    "cli_code"
+  ],
+  "reliability_task": "Harden train_eval_code against compile/mixed-precision/runtime issues: preserve input/weight/bias dtype consistency, gate torch.compile and AMP settings conservatively, and keep a robust eager fallback path so preflight catches issues instead of failing measured runs. In setup_code, remove warning-prone or fragile serialization/loading behavior where possible and ensure deterministic-enough seeding/init for stable accuracy. In cli_code, preserve the exact evaluator contract, especially --preflight behavior and final JSON emission, even if internal flow changes.",
+  "round_goal": "Reduce measured trial time below the current ~2.59s while preserving >=94.0% TTA accuracy and avoiding the runtime regressions seen in the failed GEPA attempt."
+}

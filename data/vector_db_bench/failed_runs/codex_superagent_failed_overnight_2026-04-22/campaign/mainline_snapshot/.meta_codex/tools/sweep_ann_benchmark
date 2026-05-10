@@ -1,0 +1,361 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import itertools
+import json
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
+
+
+TOOLS_DIR = Path(__file__).resolve().parent
+MEASURE_ANN = TOOLS_DIR / "measure_ann_benchmark"
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Sweep ANN search parameters through the exact official benchmark wrapper with "
+            "the official query cache disabled, then summarize the valid frontier."
+        )
+    )
+    parser.add_argument("--primary-probes", type=int, nargs="+", default=[14])
+    parser.add_argument("--primary-clusters", type=int, nargs="+", default=[256])
+    parser.add_argument("--secondary-clusters", type=int, nargs="+", default=[64])
+    parser.add_argument("--cluster-probes", type=int, nargs="+", default=[136])
+    parser.add_argument("--prescore-candidates", type=int, nargs="+", default=[768])
+    parser.add_argument(
+        "--quantized-prescore-modes",
+        nargs="+",
+        choices=["global", "primary", "primary_residual", "primary-residual"],
+        default=["global"],
+    )
+    parser.add_argument("--coarse-prescore-dims", type=int, nargs="+", default=[0])
+    parser.add_argument("--coarse-prescore-candidates", type=int, nargs="+", default=[0])
+    parser.add_argument(
+        "--coarse-prescore-scopes",
+        nargs="+",
+        choices=["cluster", "primary"],
+        default=["cluster"],
+    )
+    parser.add_argument(
+        "--coarse-prescore-modes",
+        nargs="+",
+        choices=["raw", "residual", "group_residual", "group-residual"],
+        default=["raw"],
+    )
+    parser.add_argument("--local-subcluster-targets", type=int, nargs="+", default=[0])
+    parser.add_argument("--local-subcluster-probes", type=int, nargs="+", default=[1])
+    parser.add_argument("--local-subcluster-min-sizes", type=int, nargs="+", default=[0])
+    parser.add_argument(
+        "--local-subcluster-routings",
+        nargs="+",
+        choices=["u8", "f32", "float", "exact"],
+        default=["u8"],
+    )
+    parser.add_argument("--global-subcluster-probes", type=int, nargs="+", default=[0])
+    parser.add_argument("--enable-cluster-prune", action="store_true", default=False)
+    parser.add_argument("--enable-leaf-supercluster-routing", action="store_true", default=False)
+    parser.add_argument("--disable-leaf-supercluster-routing", action="store_true", default=False)
+    parser.add_argument("--enable-u8-routing", action="store_true", default=False)
+    parser.add_argument("--disable-u8-routing", action="store_true", default=False)
+    parser.add_argument("--enable-pq-prescore", action="store_true", default=False)
+    parser.add_argument("--disable-pq-prescore", action="store_true", default=False)
+    parser.add_argument(
+        "--pq-mode",
+        choices=["global", "primary", "primary_residual", "primary-residual"],
+        default=None,
+    )
+    parser.add_argument("--enable-vector-radius-prune", action="store_true", default=False)
+    parser.add_argument("--disable-vector-radius-prune", action="store_true", default=False)
+    parser.add_argument("--enable-block-bound-prune", action="store_true", default=False)
+    parser.add_argument("--disable-block-bound-prune", action="store_true", default=False)
+    parser.add_argument("--block-bound-dims", type=int, default=None)
+    parser.add_argument("--fast", action="store_true", default=False)
+    parser.add_argument("--stop-on-invalid", action="store_true", default=False)
+    parser.add_argument(
+        "benchmark_args",
+        nargs=argparse.REMAINDER,
+        help="Arguments forwarded to measure_ann_benchmark / run_benchmark",
+    )
+    return parser.parse_args()
+
+
+def compact_result(payload: dict[str, Any], point: dict[str, int], returncode: int) -> dict[str, Any]:
+    benchmark = payload.get("benchmark") if isinstance(payload, dict) else None
+    request_stats = payload.get("request_stats") if isinstance(payload, dict) else None
+    return {
+        "point": point,
+        "returncode": returncode,
+        "qps": benchmark.get("qps") if isinstance(benchmark, dict) else None,
+        "recall": benchmark.get("recall") if isinstance(benchmark, dict) else None,
+        "recall_passed": benchmark.get("recall_passed") if isinstance(benchmark, dict) else None,
+        "search_process_us": (
+            request_stats.get("avg_search_process_request_us")
+            if isinstance(request_stats, dict)
+            else None
+        ),
+        "search_read_us": (
+            request_stats.get("avg_search_read_request_us")
+            if isinstance(request_stats, dict)
+            else None
+        ),
+        "payload": payload,
+    }
+
+
+def main() -> int:
+    args = parse_args()
+    benchmark_args = args.benchmark_args
+    if benchmark_args[:1] == ["--"]:
+        benchmark_args = benchmark_args[1:]
+    if args.enable_u8_routing and args.disable_u8_routing:
+        raise SystemExit("choose at most one of --enable-u8-routing and --disable-u8-routing")
+    if args.enable_leaf_supercluster_routing and args.disable_leaf_supercluster_routing:
+        raise SystemExit(
+            "choose at most one of --enable-leaf-supercluster-routing and --disable-leaf-supercluster-routing"
+        )
+    if args.enable_pq_prescore and args.disable_pq_prescore:
+        raise SystemExit("choose at most one of --enable-pq-prescore and --disable-pq-prescore")
+    if args.enable_vector_radius_prune and args.disable_vector_radius_prune:
+        raise SystemExit(
+            "choose at most one of --enable-vector-radius-prune and --disable-vector-radius-prune"
+        )
+    if args.enable_block_bound_prune and args.disable_block_bound_prune:
+        raise SystemExit(
+            "choose at most one of --enable-block-bound-prune and --disable-block-bound-prune"
+        )
+
+    if not MEASURE_ANN.is_file():
+        raise SystemExit(f"measure_ann_benchmark not found: {MEASURE_ANN}")
+
+    runs: list[dict[str, Any]] = []
+    worst_returncode = 0
+
+    for (
+        primary_probe,
+        primary_clusters,
+        secondary_clusters,
+        cluster_probe,
+        prescore_candidates,
+        quantized_prescore_mode,
+        coarse_prescore_dims,
+        coarse_prescore_candidates,
+        coarse_prescore_scope,
+        coarse_prescore_mode,
+        local_subcluster_target,
+        local_subcluster_probe,
+        local_subcluster_min_size,
+        local_subcluster_routing,
+        global_subcluster_probe,
+    ) in itertools.product(
+        args.primary_probes,
+        args.primary_clusters,
+        args.secondary_clusters,
+        args.cluster_probes,
+        args.prescore_candidates,
+        args.quantized_prescore_modes,
+        args.coarse_prescore_dims,
+        args.coarse_prescore_candidates,
+        args.coarse_prescore_scopes,
+        args.coarse_prescore_modes,
+        args.local_subcluster_targets,
+        args.local_subcluster_probes,
+        args.local_subcluster_min_sizes,
+        args.local_subcluster_routings,
+        args.global_subcluster_probes,
+    ):
+        point = {
+            "primary_probe": primary_probe,
+            "primary_clusters": primary_clusters,
+            "secondary_clusters": secondary_clusters,
+            "cluster_probe": cluster_probe,
+            "prescore_candidates": prescore_candidates,
+            "quantized_prescore_mode": quantized_prescore_mode,
+            "pq_prescore": args.enable_pq_prescore and not args.disable_pq_prescore,
+            "pq_mode": (
+                args.pq_mode
+                or (
+                    "primary_residual"
+                    if args.enable_pq_prescore and not args.disable_pq_prescore
+                    else None
+                )
+            ),
+            "coarse_prescore_dims": coarse_prescore_dims,
+            "coarse_prescore_candidates": coarse_prescore_candidates,
+            "coarse_prescore_scope": coarse_prescore_scope,
+            "coarse_prescore_mode": coarse_prescore_mode,
+            "local_subcluster_target": local_subcluster_target,
+            "local_subcluster_probe": local_subcluster_probe,
+            "local_subcluster_min_size": local_subcluster_min_size,
+            "local_subcluster_routing": local_subcluster_routing,
+            "global_subcluster_probe": global_subcluster_probe,
+            "leaf_supercluster_routing": args.enable_leaf_supercluster_routing
+            and not args.disable_leaf_supercluster_routing,
+        }
+        cmd = [
+            str(MEASURE_ANN),
+            "--primary-clusters",
+            str(primary_clusters),
+            "--primary-probe",
+            str(primary_probe),
+            "--secondary-clusters",
+            str(secondary_clusters),
+            "--cluster-probe",
+            str(cluster_probe),
+            "--prescore-candidates",
+            str(prescore_candidates),
+            "--quantized-prescore-mode",
+            quantized_prescore_mode,
+        ]
+        if coarse_prescore_dims > 0:
+            cmd.extend(
+                [
+                    "--coarse-prescore-dims",
+                    str(coarse_prescore_dims),
+                ]
+            )
+        if coarse_prescore_candidates > 0:
+            cmd.extend(
+                [
+                    "--coarse-prescore-candidates",
+                    str(coarse_prescore_candidates),
+                ]
+            )
+        if coarse_prescore_dims > 0:
+            cmd.extend(
+                [
+                    "--coarse-prescore-scope",
+                    coarse_prescore_scope,
+                ]
+            )
+            cmd.extend(
+                [
+                    "--coarse-prescore-mode",
+                    coarse_prescore_mode,
+                ]
+            )
+        if local_subcluster_target > 0:
+            cmd.extend(
+                [
+                    "--local-subcluster-target",
+                    str(local_subcluster_target),
+                    "--local-subcluster-probe",
+                    str(local_subcluster_probe),
+                ]
+            )
+            if local_subcluster_min_size > 0:
+                cmd.extend(
+                    [
+                        "--local-subcluster-min-size",
+                        str(local_subcluster_min_size),
+                    ]
+                )
+            cmd.extend(
+                [
+                    "--local-subcluster-routing",
+                    local_subcluster_routing,
+                ]
+            )
+        if global_subcluster_probe > 0:
+            cmd.extend(
+                [
+                    "--global-subcluster-probe",
+                    str(global_subcluster_probe),
+                ]
+            )
+        if benchmark_args:
+            cmd.extend(["--", *benchmark_args])
+        if args.enable_cluster_prune:
+            cmd.insert(1, "--enable-cluster-prune")
+        if args.enable_leaf_supercluster_routing:
+            cmd.insert(1, "--enable-leaf-supercluster-routing")
+        if args.disable_leaf_supercluster_routing:
+            cmd.insert(1, "--disable-leaf-supercluster-routing")
+        if args.enable_u8_routing:
+            cmd.insert(1, "--enable-u8-routing")
+        if args.disable_u8_routing:
+            cmd.insert(1, "--disable-u8-routing")
+        if args.enable_pq_prescore:
+            cmd.insert(1, "--enable-pq-prescore")
+        if args.disable_pq_prescore:
+            cmd.insert(1, "--disable-pq-prescore")
+        if args.pq_mode:
+            cmd.extend(["--pq-mode", args.pq_mode])
+        if args.enable_vector_radius_prune:
+            cmd.insert(1, "--enable-vector-radius-prune")
+        if args.disable_vector_radius_prune:
+            cmd.insert(1, "--disable-vector-radius-prune")
+        if args.enable_block_bound_prune:
+            cmd.insert(1, "--enable-block-bound-prune")
+        if args.disable_block_bound_prune:
+            cmd.insert(1, "--disable-block-bound-prune")
+        if args.block_bound_dims is not None:
+            cmd.extend(["--block-bound-dims", str(args.block_bound_dims)])
+        if args.fast:
+            cmd.insert(1, "--fast")
+
+        print(
+            "sweep_ann_benchmark: running "
+            f"primary={primary_probe} secondary={secondary_clusters} "
+            f"cluster={cluster_probe} prescore={prescore_candidates} "
+            f"quantized_mode={quantized_prescore_mode} "
+            f"pq_mode={point['pq_mode']} "
+            f"coarse_dims={coarse_prescore_dims} coarse_candidates={coarse_prescore_candidates} "
+            f"coarse_scope={coarse_prescore_scope} coarse_mode={coarse_prescore_mode} "
+            f"local_target={local_subcluster_target} local_probe={local_subcluster_probe} "
+            f"local_min_size={local_subcluster_min_size} local_routing={local_subcluster_routing} "
+            f"global_probe={global_subcluster_probe}",
+            file=sys.stderr,
+        )
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        worst_returncode = max(worst_returncode, proc.returncode)
+
+        try:
+            payload = json.loads(proc.stdout)
+        except json.JSONDecodeError as exc:
+            payload = {
+                "type": "SweepAnnBenchmarkRunError",
+                "point": point,
+                "parse_error": str(exc),
+                "raw_stdout": proc.stdout,
+                "raw_stderr": proc.stderr,
+            }
+
+        result = compact_result(payload, point, proc.returncode)
+        runs.append(result)
+
+        benchmark = payload.get("benchmark") if isinstance(payload, dict) else None
+        recall_passed = (
+            bool(benchmark.get("recall_passed"))
+            if isinstance(benchmark, dict)
+            else False
+        )
+        qps = benchmark.get("qps") if isinstance(benchmark, dict) else None
+        recall = benchmark.get("recall") if isinstance(benchmark, dict) else None
+        print(
+            f"sweep_ann_benchmark: qps={qps} recall={recall} recall_passed={recall_passed}",
+            file=sys.stderr,
+        )
+
+        if args.stop_on_invalid and isinstance(benchmark, dict) and not recall_passed:
+            break
+
+    valid_runs = [run for run in runs if run.get("recall_passed")]
+    best_valid = max(valid_runs, key=lambda run: float(run.get("qps") or 0.0), default=None)
+
+    payload = {
+        "type": "SweepAnnBenchmark",
+        "benchmark_args": benchmark_args,
+        "points_tested": len(runs),
+        "best_valid": best_valid,
+        "runs": runs,
+    }
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return worst_returncode
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

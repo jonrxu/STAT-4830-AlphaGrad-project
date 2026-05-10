@@ -1,0 +1,672 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$DIR/../.." && pwd)"
+SERVER_BIN="$ROOT/target/release/vector-db-skeleton"
+PORT="${ANN_SEARCH_ONLY_PORT:-18083}"
+SERVER_URL="http://127.0.0.1:${PORT}"
+CPU_CORES="${CPU_CORES:-0-3}"
+DATA_DIR="${VDB_DATA_DIR:-/opt/vdb-data}"
+SERVER_LOG="$(mktemp)"
+REQUEST_STATS_PATH=""
+ANN_STATS_PATH=""
+
+PRIMARY_CLUSTERS=""
+PRIMARY_PROBE=""
+SECONDARY_CLUSTERS=""
+CLUSTER_PROBE=""
+PRESCORE_CANDIDATES=""
+QUANTIZED_PRESCORE_MODE=""
+COARSE_PRESCORE_DIMS=""
+COARSE_PRESCORE_CANDIDATES=""
+COARSE_PRESCORE_SCOPE=""
+COARSE_PRESCORE_MODE=""
+LOCAL_SUBCLUSTER_TARGET=""
+LOCAL_SUBCLUSTER_PROBE=""
+LOCAL_SUBCLUSTER_MIN_SIZE=""
+LOCAL_SUBCLUSTER_ROUTING=""
+GLOBAL_SUBCLUSTER_PROBE=""
+ENABLE_CLUSTER_PRUNE=0
+LEAF_SUPERCLUSTER_ROUTING_OVERRIDE=""
+U8_ROUTING_OVERRIDE=""
+PQ_PRESCORE_OVERRIDE=""
+PQ_MODE=""
+VECTOR_RADIUS_PRUNE_OVERRIDE=""
+BLOCK_BOUND_PRUNE_OVERRIDE=""
+BLOCK_BOUND_DIMS=""
+INCLUDE_REQUEST_STATS=0
+INCLUDE_ANN_STATS=0
+PRIME_BUILD=0
+CLIENT_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --primary-clusters)
+      PRIMARY_CLUSTERS="${2:?missing value for --primary-clusters}"
+      shift 2
+      ;;
+    --primary-probe)
+      PRIMARY_PROBE="${2:?missing value for --primary-probe}"
+      shift 2
+      ;;
+    --secondary-clusters)
+      SECONDARY_CLUSTERS="${2:?missing value for --secondary-clusters}"
+      shift 2
+      ;;
+    --cluster-probe)
+      CLUSTER_PROBE="${2:?missing value for --cluster-probe}"
+      shift 2
+      ;;
+    --prescore-candidates)
+      PRESCORE_CANDIDATES="${2:?missing value for --prescore-candidates}"
+      shift 2
+      ;;
+    --quantized-prescore-mode)
+      QUANTIZED_PRESCORE_MODE="${2:?missing value for --quantized-prescore-mode}"
+      shift 2
+      ;;
+    --coarse-prescore-dims)
+      COARSE_PRESCORE_DIMS="${2:?missing value for --coarse-prescore-dims}"
+      shift 2
+      ;;
+    --coarse-prescore-candidates)
+      COARSE_PRESCORE_CANDIDATES="${2:?missing value for --coarse-prescore-candidates}"
+      shift 2
+      ;;
+    --coarse-prescore-scope)
+      COARSE_PRESCORE_SCOPE="${2:?missing value for --coarse-prescore-scope}"
+      shift 2
+      ;;
+    --coarse-prescore-mode)
+      COARSE_PRESCORE_MODE="${2:?missing value for --coarse-prescore-mode}"
+      shift 2
+      ;;
+    --local-subcluster-target)
+      LOCAL_SUBCLUSTER_TARGET="${2:?missing value for --local-subcluster-target}"
+      shift 2
+      ;;
+    --local-subcluster-probe)
+      LOCAL_SUBCLUSTER_PROBE="${2:?missing value for --local-subcluster-probe}"
+      shift 2
+      ;;
+    --local-subcluster-min-size)
+      LOCAL_SUBCLUSTER_MIN_SIZE="${2:?missing value for --local-subcluster-min-size}"
+      shift 2
+      ;;
+    --local-subcluster-routing)
+      LOCAL_SUBCLUSTER_ROUTING="${2:?missing value for --local-subcluster-routing}"
+      shift 2
+      ;;
+    --global-subcluster-probe)
+      GLOBAL_SUBCLUSTER_PROBE="${2:?missing value for --global-subcluster-probe}"
+      shift 2
+      ;;
+    --enable-cluster-prune)
+      ENABLE_CLUSTER_PRUNE=1
+      shift
+      ;;
+    --enable-leaf-supercluster-routing)
+      LEAF_SUPERCLUSTER_ROUTING_OVERRIDE="1"
+      shift
+      ;;
+    --disable-leaf-supercluster-routing)
+      LEAF_SUPERCLUSTER_ROUTING_OVERRIDE="0"
+      shift
+      ;;
+    --enable-u8-routing)
+      U8_ROUTING_OVERRIDE="1"
+      shift
+      ;;
+    --disable-u8-routing)
+      U8_ROUTING_OVERRIDE="0"
+      shift
+      ;;
+    --enable-pq-prescore)
+      PQ_PRESCORE_OVERRIDE="1"
+      shift
+      ;;
+    --disable-pq-prescore)
+      PQ_PRESCORE_OVERRIDE="0"
+      shift
+      ;;
+    --pq-mode)
+      PQ_MODE="${2:?missing value for --pq-mode}"
+      shift 2
+      ;;
+    --enable-vector-radius-prune)
+      VECTOR_RADIUS_PRUNE_OVERRIDE="1"
+      shift
+      ;;
+    --disable-vector-radius-prune)
+      VECTOR_RADIUS_PRUNE_OVERRIDE="0"
+      shift
+      ;;
+    --enable-block-bound-prune)
+      BLOCK_BOUND_PRUNE_OVERRIDE="1"
+      shift
+      ;;
+    --disable-block-bound-prune)
+      BLOCK_BOUND_PRUNE_OVERRIDE="0"
+      shift
+      ;;
+    --block-bound-dims)
+      BLOCK_BOUND_DIMS="${2:?missing value for --block-bound-dims}"
+      shift 2
+      ;;
+    --include-request-stats)
+      INCLUDE_REQUEST_STATS=1
+      shift
+      ;;
+    --include-ann-stats)
+      INCLUDE_ANN_STATS=1
+      shift
+      ;;
+    --prime-build)
+      PRIME_BUILD=1
+      shift
+      ;;
+    --help|-h)
+      cat <<'EOF'
+Usage: measure_ann_search_only [--primary-clusters N] [--primary-probe N] [--secondary-clusters N] [--cluster-probe N] [--prescore-candidates N] [--enable-cluster-prune] [--enable-leaf-supercluster-routing|--disable-leaf-supercluster-routing] [--enable-u8-routing|--disable-u8-routing] [--enable-vector-radius-prune|--disable-vector-radius-prune] [--enable-block-bound-prune|--disable-block-bound-prune] [--block-bound-dims N] [--include-request-stats] [--include-ann-stats] [-- replay args...]
+       [--quantized-prescore-mode MODE]
+       [--coarse-prescore-dims N] [--coarse-prescore-candidates N] [--coarse-prescore-scope MODE]
+       [--coarse-prescore-mode MODE]
+       [--enable-pq-prescore|--disable-pq-prescore] [--pq-mode MODE]
+       [--prime-build]
+       [--local-subcluster-target N] [--local-subcluster-probe N] [--local-subcluster-min-size N]
+       [--local-subcluster-routing MODE]
+       [--global-subcluster-probe N]
+
+Launches the real Rust server in ANN mode with the official base vectors preloaded locally from disk,
+then measures search-only QPS and recall with the compiled raw-socket replay client.
+Use --include-request-stats to capture the server-side request breakdown from the same run.
+Use --include-ann-stats to capture ANN-side cluster/scan/rerank counters and timings.
+Use --primary-clusters to rebuild the top-level IVF fanout while keeping the scored default at
+the existing 256-primary geometry.
+Use --secondary-clusters to rebuild the local ANN index with a different per-primary secondary
+partition count while keeping the official dataset and protocol unchanged.
+Use --enable-leaf-supercluster-routing to regroup the existing leaf centroids into a second
+top-level routing layer, so routing can probe super-clusters of leaf centroids instead of the
+original per-primary buckets.
+Use --quantized-prescore-mode primary_residual to prescore shortlisted vectors in a
+per-primary residual `u8` space instead of the default global `u8` quantization.
+Use --prime-build to issue one untimed search before the measured replay so first-search index
+build does not distort local steady-state comparisons for heavier branches.
+When PQ prescore is enabled, the default mode is `primary_residual`; use `--pq-mode global`
+to re-run the older global-codebook branch.
+Use `--coarse-prescore-scope primary` to test the experimental per-primary coarse shortlist
+instead of the older per-cluster coarse shortlist.
+Use `--coarse-prescore-mode residual` to center the shortlist dimensions on the selected
+group centroid before quantized coarse scanning.
+Use `--local-subcluster-routing f32` to route the experimental local-subcluster selector with
+exact local-centroid distances instead of the default quantized `u8` distances.
+When block-bound pruning is enabled, vector-radius pruning is disabled by default unless you
+explicitly override it.
+This is a local convergence harness, not an official benchmark result.
+EOF
+      exit 0
+      ;;
+    --)
+      shift
+      CLIENT_ARGS+=("$@")
+      break
+      ;;
+    *)
+      CLIENT_ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+
+if [ -n "$PQ_MODE" ]; then
+  case "$PQ_MODE" in
+    global|primary|primary_residual|primary-residual)
+      ;;
+    *)
+      echo "measure_ann_search_only: invalid --pq-mode '$PQ_MODE' (expected global|primary|primary_residual)" >&2
+      exit 2
+      ;;
+  esac
+fi
+
+if [ -n "$COARSE_PRESCORE_SCOPE" ]; then
+  case "$COARSE_PRESCORE_SCOPE" in
+    cluster|primary)
+      ;;
+    *)
+      echo "measure_ann_search_only: invalid --coarse-prescore-scope '$COARSE_PRESCORE_SCOPE' (expected cluster|primary)" >&2
+      exit 2
+      ;;
+  esac
+fi
+
+if [ -n "$QUANTIZED_PRESCORE_MODE" ]; then
+  case "$QUANTIZED_PRESCORE_MODE" in
+    global|primary|primary_residual|primary-residual)
+      ;;
+    *)
+      echo "measure_ann_search_only: invalid --quantized-prescore-mode '$QUANTIZED_PRESCORE_MODE' (expected global|primary_residual)" >&2
+      exit 2
+      ;;
+  esac
+fi
+
+if [ -n "$COARSE_PRESCORE_MODE" ]; then
+  case "$COARSE_PRESCORE_MODE" in
+    raw|residual|group_residual|group-residual)
+      ;;
+    *)
+      echo "measure_ann_search_only: invalid --coarse-prescore-mode '$COARSE_PRESCORE_MODE' (expected raw|residual)" >&2
+      exit 2
+      ;;
+  esac
+fi
+
+if [ -n "$LOCAL_SUBCLUSTER_ROUTING" ]; then
+  case "$LOCAL_SUBCLUSTER_ROUTING" in
+    u8|f32|float|exact)
+      ;;
+    *)
+      echo "measure_ann_search_only: invalid --local-subcluster-routing '$LOCAL_SUBCLUSTER_ROUTING' (expected u8|f32)" >&2
+      exit 2
+      ;;
+  esac
+fi
+
+if [ "$PQ_PRESCORE_OVERRIDE" = "1" ]; then
+  if [ "$VECTOR_RADIUS_PRUNE_OVERRIDE" = "1" ]; then
+    echo "measure_ann_search_only: --enable-pq-prescore and --enable-vector-radius-prune are mutually exclusive" >&2
+    exit 2
+  fi
+  if [ -z "$VECTOR_RADIUS_PRUNE_OVERRIDE" ]; then
+    VECTOR_RADIUS_PRUNE_OVERRIDE="0"
+  fi
+  if [ -z "$PQ_MODE" ]; then
+    PQ_MODE="primary_residual"
+  fi
+fi
+
+if [ -n "$BLOCK_BOUND_DIMS" ] && [ -z "$BLOCK_BOUND_PRUNE_OVERRIDE" ]; then
+  BLOCK_BOUND_PRUNE_OVERRIDE="1"
+fi
+
+if [ "$BLOCK_BOUND_PRUNE_OVERRIDE" = "1" ]; then
+  if [ "$VECTOR_RADIUS_PRUNE_OVERRIDE" = "1" ]; then
+    echo "measure_ann_search_only: --enable-block-bound-prune and --enable-vector-radius-prune are mutually exclusive" >&2
+    exit 2
+  fi
+  if [ -z "$VECTOR_RADIUS_PRUNE_OVERRIDE" ]; then
+    VECTOR_RADIUS_PRUNE_OVERRIDE="0"
+  fi
+fi
+
+"$DIR/build_project" >/dev/null
+
+cleanup() {
+  if [ -n "${SERVER_PID:-}" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
+    kill "$SERVER_PID" 2>/dev/null || true
+    wait "$SERVER_PID" 2>/dev/null || true
+  fi
+  rm -f "$SERVER_LOG"
+  if [ -n "$REQUEST_STATS_PATH" ]; then
+    rm -f "$REQUEST_STATS_PATH"
+  fi
+  if [ -n "$ANN_STATS_PATH" ]; then
+    rm -f "$ANN_STATS_PATH"
+  fi
+}
+trap cleanup EXIT
+
+SERVER_ENV=(
+  VDB_DISABLE_OFFICIAL_CACHE=1
+  VDB_PRELOAD_ANN_BASE=1
+  PORT="$PORT"
+)
+ANN_ENV_JSON='{"VDB_DISABLE_OFFICIAL_CACHE":"1","VDB_PRELOAD_ANN_BASE":"1"}'
+
+if [ "$INCLUDE_REQUEST_STATS" = "1" ]; then
+  REQUEST_STATS_PATH="$(mktemp)"
+  SERVER_ENV+=(VDB_REQUEST_STATS_PATH="$REQUEST_STATS_PATH")
+fi
+if [ "$INCLUDE_ANN_STATS" = "1" ]; then
+  ANN_STATS_PATH="$(mktemp)"
+  SERVER_ENV+=(VDB_ANN_STATS_PATH="$ANN_STATS_PATH")
+fi
+
+if [ -n "$PRIMARY_CLUSTERS" ]; then
+  SERVER_ENV+=(VDB_PRIMARY_CLUSTERS="$PRIMARY_CLUSTERS")
+  ANN_ENV_JSON="$(python3 - "$ANN_ENV_JSON" "$PRIMARY_CLUSTERS" <<'PY'
+import json, sys
+payload = json.loads(sys.argv[1])
+payload["VDB_PRIMARY_CLUSTERS"] = sys.argv[2]
+print(json.dumps(payload))
+PY
+)"
+fi
+if [ -n "$PRIMARY_PROBE" ]; then
+  SERVER_ENV+=(VDB_PRIMARY_PROBE="$PRIMARY_PROBE")
+  ANN_ENV_JSON="$(python3 - "$ANN_ENV_JSON" "$PRIMARY_PROBE" <<'PY'
+import json, sys
+payload = json.loads(sys.argv[1])
+payload["VDB_PRIMARY_PROBE"] = sys.argv[2]
+print(json.dumps(payload))
+PY
+)"
+fi
+if [ -n "$SECONDARY_CLUSTERS" ]; then
+  SERVER_ENV+=(VDB_SECONDARY_CLUSTERS="$SECONDARY_CLUSTERS")
+  ANN_ENV_JSON="$(python3 - "$ANN_ENV_JSON" "$SECONDARY_CLUSTERS" <<'PY'
+import json, sys
+payload = json.loads(sys.argv[1])
+payload["VDB_SECONDARY_CLUSTERS"] = sys.argv[2]
+print(json.dumps(payload))
+PY
+)"
+fi
+if [ -n "$CLUSTER_PROBE" ]; then
+  SERVER_ENV+=(VDB_FINAL_CLUSTER_PROBE="$CLUSTER_PROBE")
+  ANN_ENV_JSON="$(python3 - "$ANN_ENV_JSON" "$CLUSTER_PROBE" <<'PY'
+import json, sys
+payload = json.loads(sys.argv[1])
+payload["VDB_FINAL_CLUSTER_PROBE"] = sys.argv[2]
+print(json.dumps(payload))
+PY
+)"
+fi
+if [ -n "$PRESCORE_CANDIDATES" ]; then
+  SERVER_ENV+=(VDB_PRESCORE_CANDIDATES="$PRESCORE_CANDIDATES")
+  ANN_ENV_JSON="$(python3 - "$ANN_ENV_JSON" "$PRESCORE_CANDIDATES" <<'PY'
+import json, sys
+payload = json.loads(sys.argv[1])
+payload["VDB_PRESCORE_CANDIDATES"] = sys.argv[2]
+print(json.dumps(payload))
+PY
+)"
+fi
+if [ -n "$QUANTIZED_PRESCORE_MODE" ]; then
+  SERVER_ENV+=(VDB_QUANTIZED_PRESCORE_MODE="$QUANTIZED_PRESCORE_MODE")
+  ANN_ENV_JSON="$(python3 - "$ANN_ENV_JSON" "$QUANTIZED_PRESCORE_MODE" <<'PY'
+import json, sys
+payload = json.loads(sys.argv[1])
+payload["VDB_QUANTIZED_PRESCORE_MODE"] = sys.argv[2]
+print(json.dumps(payload))
+PY
+)"
+fi
+if [ -n "$COARSE_PRESCORE_DIMS" ]; then
+  SERVER_ENV+=(VDB_COARSE_PRESCORE_DIMS="$COARSE_PRESCORE_DIMS")
+  ANN_ENV_JSON="$(python3 - "$ANN_ENV_JSON" "$COARSE_PRESCORE_DIMS" <<'PY'
+import json, sys
+payload = json.loads(sys.argv[1])
+payload["VDB_COARSE_PRESCORE_DIMS"] = sys.argv[2]
+print(json.dumps(payload))
+PY
+)"
+fi
+if [ -n "$COARSE_PRESCORE_CANDIDATES" ]; then
+  SERVER_ENV+=(VDB_COARSE_PRESCORE_CANDIDATES="$COARSE_PRESCORE_CANDIDATES")
+  ANN_ENV_JSON="$(python3 - "$ANN_ENV_JSON" "$COARSE_PRESCORE_CANDIDATES" <<'PY'
+import json, sys
+payload = json.loads(sys.argv[1])
+payload["VDB_COARSE_PRESCORE_CANDIDATES"] = sys.argv[2]
+print(json.dumps(payload))
+PY
+)"
+fi
+if [ -n "$COARSE_PRESCORE_SCOPE" ]; then
+  SERVER_ENV+=(VDB_COARSE_PRESCORE_SCOPE="$COARSE_PRESCORE_SCOPE")
+  ANN_ENV_JSON="$(python3 - "$ANN_ENV_JSON" "$COARSE_PRESCORE_SCOPE" <<'PY'
+import json, sys
+payload = json.loads(sys.argv[1])
+payload["VDB_COARSE_PRESCORE_SCOPE"] = sys.argv[2]
+print(json.dumps(payload))
+PY
+)"
+fi
+if [ -n "$COARSE_PRESCORE_MODE" ]; then
+  SERVER_ENV+=(VDB_COARSE_PRESCORE_MODE="$COARSE_PRESCORE_MODE")
+  ANN_ENV_JSON="$(python3 - "$ANN_ENV_JSON" "$COARSE_PRESCORE_MODE" <<'PY'
+import json, sys
+payload = json.loads(sys.argv[1])
+payload["VDB_COARSE_PRESCORE_MODE"] = sys.argv[2]
+print(json.dumps(payload))
+PY
+)"
+fi
+if [ -n "$LOCAL_SUBCLUSTER_TARGET" ]; then
+  SERVER_ENV+=(VDB_LOCAL_SUBCLUSTER_TARGET="$LOCAL_SUBCLUSTER_TARGET")
+  ANN_ENV_JSON="$(python3 - "$ANN_ENV_JSON" "$LOCAL_SUBCLUSTER_TARGET" <<'PY'
+import json, sys
+payload = json.loads(sys.argv[1])
+payload["VDB_LOCAL_SUBCLUSTER_TARGET"] = sys.argv[2]
+print(json.dumps(payload))
+PY
+)"
+fi
+if [ -n "$LOCAL_SUBCLUSTER_PROBE" ]; then
+  SERVER_ENV+=(VDB_LOCAL_SUBCLUSTER_PROBE="$LOCAL_SUBCLUSTER_PROBE")
+  ANN_ENV_JSON="$(python3 - "$ANN_ENV_JSON" "$LOCAL_SUBCLUSTER_PROBE" <<'PY'
+import json, sys
+payload = json.loads(sys.argv[1])
+payload["VDB_LOCAL_SUBCLUSTER_PROBE"] = sys.argv[2]
+print(json.dumps(payload))
+PY
+)"
+fi
+if [ -n "$LOCAL_SUBCLUSTER_MIN_SIZE" ]; then
+  SERVER_ENV+=(VDB_LOCAL_SUBCLUSTER_MIN_SIZE="$LOCAL_SUBCLUSTER_MIN_SIZE")
+  ANN_ENV_JSON="$(python3 - "$ANN_ENV_JSON" "$LOCAL_SUBCLUSTER_MIN_SIZE" <<'PY'
+import json, sys
+payload = json.loads(sys.argv[1])
+payload["VDB_LOCAL_SUBCLUSTER_MIN_SIZE"] = sys.argv[2]
+print(json.dumps(payload))
+PY
+)"
+fi
+if [ -n "$LOCAL_SUBCLUSTER_ROUTING" ]; then
+  SERVER_ENV+=(VDB_LOCAL_SUBCLUSTER_ROUTING="$LOCAL_SUBCLUSTER_ROUTING")
+  ANN_ENV_JSON="$(python3 - "$ANN_ENV_JSON" "$LOCAL_SUBCLUSTER_ROUTING" <<'PY'
+import json, sys
+payload = json.loads(sys.argv[1])
+payload["VDB_LOCAL_SUBCLUSTER_ROUTING"] = sys.argv[2]
+print(json.dumps(payload))
+PY
+)"
+fi
+if [ -n "$GLOBAL_SUBCLUSTER_PROBE" ]; then
+  SERVER_ENV+=(VDB_GLOBAL_SUBCLUSTER_PROBE="$GLOBAL_SUBCLUSTER_PROBE")
+  ANN_ENV_JSON="$(python3 - "$ANN_ENV_JSON" "$GLOBAL_SUBCLUSTER_PROBE" <<'PY'
+import json, sys
+payload = json.loads(sys.argv[1])
+payload["VDB_GLOBAL_SUBCLUSTER_PROBE"] = sys.argv[2]
+print(json.dumps(payload))
+PY
+)"
+fi
+if [ "$ENABLE_CLUSTER_PRUNE" = "1" ]; then
+  SERVER_ENV+=(VDB_ENABLE_CLUSTER_PRUNE=1)
+  ANN_ENV_JSON="$(python3 - "$ANN_ENV_JSON" <<'PY'
+import json, sys
+payload = json.loads(sys.argv[1])
+payload["VDB_ENABLE_CLUSTER_PRUNE"] = "1"
+print(json.dumps(payload))
+PY
+)"
+fi
+if [ -n "$LEAF_SUPERCLUSTER_ROUTING_OVERRIDE" ]; then
+  SERVER_ENV+=(VDB_ENABLE_LEAF_SUPERCLUSTER_ROUTING="$LEAF_SUPERCLUSTER_ROUTING_OVERRIDE")
+  ANN_ENV_JSON="$(python3 - "$ANN_ENV_JSON" "$LEAF_SUPERCLUSTER_ROUTING_OVERRIDE" <<'PY'
+import json, sys
+payload = json.loads(sys.argv[1])
+payload["VDB_ENABLE_LEAF_SUPERCLUSTER_ROUTING"] = sys.argv[2]
+print(json.dumps(payload))
+PY
+)"
+fi
+if [ -n "$U8_ROUTING_OVERRIDE" ]; then
+  SERVER_ENV+=(VDB_ENABLE_U8_ROUTING="$U8_ROUTING_OVERRIDE")
+  ANN_ENV_JSON="$(python3 - "$ANN_ENV_JSON" "$U8_ROUTING_OVERRIDE" <<'PY'
+import json, sys
+payload = json.loads(sys.argv[1])
+payload["VDB_ENABLE_U8_ROUTING"] = sys.argv[2]
+print(json.dumps(payload))
+PY
+)"
+fi
+if [ -n "$PQ_PRESCORE_OVERRIDE" ]; then
+  SERVER_ENV+=(VDB_ENABLE_PQ_PRESCORE="$PQ_PRESCORE_OVERRIDE")
+  ANN_ENV_JSON="$(python3 - "$ANN_ENV_JSON" "$PQ_PRESCORE_OVERRIDE" <<'PY'
+import json, sys
+payload = json.loads(sys.argv[1])
+payload["VDB_ENABLE_PQ_PRESCORE"] = sys.argv[2]
+print(json.dumps(payload))
+PY
+)"
+fi
+if [ -n "$PQ_MODE" ]; then
+  SERVER_ENV+=(VDB_PQ_MODE="$PQ_MODE")
+  ANN_ENV_JSON="$(python3 - "$ANN_ENV_JSON" "$PQ_MODE" <<'PY'
+import json, sys
+payload = json.loads(sys.argv[1])
+payload["VDB_PQ_MODE"] = sys.argv[2]
+print(json.dumps(payload))
+PY
+)"
+fi
+if [ -n "$VECTOR_RADIUS_PRUNE_OVERRIDE" ]; then
+  SERVER_ENV+=(VDB_ENABLE_VECTOR_RADIUS_PRUNE="$VECTOR_RADIUS_PRUNE_OVERRIDE")
+  ANN_ENV_JSON="$(python3 - "$ANN_ENV_JSON" "$VECTOR_RADIUS_PRUNE_OVERRIDE" <<'PY'
+import json, sys
+payload = json.loads(sys.argv[1])
+payload["VDB_ENABLE_VECTOR_RADIUS_PRUNE"] = sys.argv[2]
+print(json.dumps(payload))
+PY
+)"
+fi
+if [ -n "$BLOCK_BOUND_PRUNE_OVERRIDE" ]; then
+  SERVER_ENV+=(VDB_ENABLE_BLOCK_BOUND_PRUNE="$BLOCK_BOUND_PRUNE_OVERRIDE")
+  ANN_ENV_JSON="$(python3 - "$ANN_ENV_JSON" "$BLOCK_BOUND_PRUNE_OVERRIDE" <<'PY'
+import json, sys
+payload = json.loads(sys.argv[1])
+payload["VDB_ENABLE_BLOCK_BOUND_PRUNE"] = sys.argv[2]
+print(json.dumps(payload))
+PY
+)"
+fi
+if [ -n "$BLOCK_BOUND_DIMS" ]; then
+  SERVER_ENV+=(VDB_BLOCK_BOUND_DIMS="$BLOCK_BOUND_DIMS")
+  ANN_ENV_JSON="$(python3 - "$ANN_ENV_JSON" "$BLOCK_BOUND_DIMS" <<'PY'
+import json, sys
+payload = json.loads(sys.argv[1])
+payload["VDB_BLOCK_BOUND_DIMS"] = sys.argv[2]
+print(json.dumps(payload))
+PY
+)"
+fi
+
+env "${SERVER_ENV[@]}" taskset -c "$CPU_CORES" "$SERVER_BIN" >"$SERVER_LOG" 2>&1 &
+SERVER_PID="$!"
+
+for _ in $(seq 1 200); do
+  if bash -lc "exec 3<>/dev/tcp/127.0.0.1/${PORT}" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.05
+done
+
+PRIME_BUILD_JSON=""
+if [ "$PRIME_BUILD" = "1" ]; then
+  PRIME_BUILD_JSON="$(
+    taskset -c "$CPU_CORES" "$DIR/replay_search_bodies_fast" \
+      --server-url "$SERVER_URL" \
+      --data-dir "$DATA_DIR" \
+      --ground-truth "$DATA_DIR/ground_truth.json" \
+      --queries 1 \
+      --warmup 0 \
+      --concurrency 1
+  )"
+fi
+
+RESULT_JSON="$(
+  taskset -c "$CPU_CORES" "$DIR/replay_search_bodies_fast" \
+    --server-url "$SERVER_URL" \
+    --data-dir "$DATA_DIR" \
+    --ground-truth "$DATA_DIR/ground_truth.json" \
+    "${CLIENT_ARGS[@]}"
+)"
+
+REQUEST_STATS_JSON=""
+REQUEST_STATS_ERROR=""
+if [ "$INCLUDE_REQUEST_STATS" = "1" ]; then
+  for _ in $(seq 1 20); do
+    if [ -s "$REQUEST_STATS_PATH" ]; then
+      break
+    fi
+    sleep 0.05
+  done
+  if [ -s "$REQUEST_STATS_PATH" ]; then
+    REQUEST_STATS_JSON="$(cat "$REQUEST_STATS_PATH")"
+  else
+    REQUEST_STATS_ERROR="request stats file was not created"
+  fi
+fi
+
+ANN_STATS_JSON=""
+ANN_STATS_ERROR=""
+if [ "$INCLUDE_ANN_STATS" = "1" ]; then
+  for _ in $(seq 1 20); do
+    if [ -s "$ANN_STATS_PATH" ]; then
+      break
+    fi
+    sleep 0.05
+  done
+  if [ -s "$ANN_STATS_PATH" ]; then
+    ANN_STATS_JSON="$(cat "$ANN_STATS_PATH")"
+  else
+    ANN_STATS_ERROR="ANN stats file was not created"
+  fi
+fi
+
+python3 - "$ANN_ENV_JSON" "$RESULT_JSON" "$REQUEST_STATS_JSON" "$REQUEST_STATS_ERROR" "$INCLUDE_REQUEST_STATS" "$ANN_STATS_JSON" "$ANN_STATS_ERROR" "$INCLUDE_ANN_STATS" "$PRIME_BUILD_JSON" "$PRIME_BUILD" <<'PY'
+import json
+import sys
+
+result = json.loads(sys.argv[2])
+result["type"] = "MeasureAnnSearchOnly"
+result["ann_env"] = json.loads(sys.argv[1])
+if sys.argv[5] == "1":
+    raw_stats = sys.argv[3]
+    if raw_stats:
+        try:
+            result["request_stats"] = json.loads(raw_stats)
+            result["request_stats_error"] = None
+        except json.JSONDecodeError as exc:
+            result["request_stats"] = None
+            result["request_stats_error"] = f"failed to parse request stats: {exc}"
+    else:
+        result["request_stats"] = None
+        result["request_stats_error"] = sys.argv[4] or "request stats were not captured"
+if sys.argv[8] == "1":
+    raw_ann_stats = sys.argv[6]
+    if raw_ann_stats:
+        try:
+            result["ann_stats"] = json.loads(raw_ann_stats)
+            result["ann_stats_error"] = None
+        except json.JSONDecodeError as exc:
+            result["ann_stats"] = None
+            result["ann_stats_error"] = f"failed to parse ANN stats: {exc}"
+    else:
+        result["ann_stats"] = None
+        result["ann_stats_error"] = sys.argv[7] or "ANN stats were not captured"
+if sys.argv[10] == "1":
+    raw_prime = sys.argv[9]
+    if raw_prime:
+        try:
+            result["prime_build"] = json.loads(raw_prime)
+        except json.JSONDecodeError:
+            result["prime_build"] = raw_prime
+    else:
+        result["prime_build"] = None
+print(json.dumps(result, indent=2, sort_keys=True))
+PY

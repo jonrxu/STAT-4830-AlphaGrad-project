@@ -1,0 +1,16 @@
+{
+  "actual_device_name": "NVIDIA A100-SXM4-80GB",
+  "failure_type": "gpu_mismatch",
+  "gpu_mismatch_attempts": 3,
+  "mean_accuracy": null,
+  "mean_time_seconds": null,
+  "message": "requested GPU A100-40GB, but Modal attached NVIDIA A100-SXM4-80GB",
+  "remote_runtime_seconds": 0.00018072128295898438,
+  "requested_gpu": "A100-40GB",
+  "runtime_seconds": 23.449528217315674,
+  "score": 0.0,
+  "stderr_tail": "",
+  "stdout_tail": "",
+  "trials": null,
+  "valid": false
+}

@@ -1,0 +1,290 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+
+TOOLS_DIR = Path(__file__).resolve().parent
+MEASURE_BREAKDOWN = TOOLS_DIR / "measure_official_benchmark_breakdown"
+RUN_BENCHMARK = TOOLS_DIR / "run_benchmark"
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Run the exact official benchmark with the official query cache disabled so the "
+            "real ANN fallback path is exercised. Optional ANN search knobs are passed through "
+            "as environment variables."
+        )
+    )
+    parser.add_argument("--primary-probe", type=int, default=None)
+    parser.add_argument("--primary-clusters", type=int, default=None)
+    parser.add_argument("--secondary-clusters", type=int, default=None)
+    parser.add_argument("--cluster-probe", type=int, default=None)
+    parser.add_argument("--prescore-candidates", type=int, default=None)
+    parser.add_argument(
+        "--quantized-prescore-mode",
+        choices=["global", "primary", "primary_residual", "primary-residual"],
+        default=None,
+    )
+    parser.add_argument("--coarse-prescore-dims", type=int, default=None)
+    parser.add_argument("--coarse-prescore-candidates", type=int, default=None)
+    parser.add_argument(
+        "--coarse-prescore-scope",
+        choices=["cluster", "primary"],
+        default=None,
+    )
+    parser.add_argument(
+        "--coarse-prescore-mode",
+        choices=["raw", "residual", "group_residual", "group-residual"],
+        default=None,
+    )
+    parser.add_argument("--enable-pq-prescore", action="store_true", default=False)
+    parser.add_argument("--disable-pq-prescore", action="store_true", default=False)
+    parser.add_argument(
+        "--pq-mode",
+        choices=["global", "primary", "primary_residual", "primary-residual"],
+        default=None,
+    )
+    parser.add_argument("--local-subcluster-target", type=int, default=None)
+    parser.add_argument("--local-subcluster-probe", type=int, default=None)
+    parser.add_argument("--local-subcluster-min-size", type=int, default=None)
+    parser.add_argument(
+        "--local-subcluster-routing",
+        choices=["u8", "f32", "float", "exact"],
+        default=None,
+    )
+    parser.add_argument("--global-subcluster-probe", type=int, default=None)
+    parser.add_argument("--enable-cluster-prune", action="store_true", default=False)
+    parser.add_argument("--enable-leaf-supercluster-routing", action="store_true", default=False)
+    parser.add_argument("--disable-leaf-supercluster-routing", action="store_true", default=False)
+    parser.add_argument("--enable-u8-routing", action="store_true", default=False)
+    parser.add_argument("--disable-u8-routing", action="store_true", default=False)
+    parser.add_argument("--enable-vector-radius-prune", action="store_true", default=False)
+    parser.add_argument("--disable-vector-radius-prune", action="store_true", default=False)
+    parser.add_argument("--enable-block-bound-prune", action="store_true", default=False)
+    parser.add_argument("--disable-block-bound-prune", action="store_true", default=False)
+    parser.add_argument("--block-bound-dims", type=int, default=None)
+    parser.add_argument(
+        "--fast",
+        action="store_true",
+        default=False,
+        help="Run the exact benchmark without request/ANN stats for a faster QPS-only decision gate.",
+    )
+    parser.add_argument(
+        "benchmark_args",
+        nargs=argparse.REMAINDER,
+        help="Arguments forwarded to measure_official_benchmark_breakdown / run_benchmark",
+    )
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+    if args.block_bound_dims is not None and not args.disable_block_bound_prune:
+        args.enable_block_bound_prune = True
+    benchmark_args = args.benchmark_args
+    if benchmark_args[:1] == ["--"]:
+        benchmark_args = benchmark_args[1:]
+
+    runner = RUN_BENCHMARK if args.fast else MEASURE_BREAKDOWN
+    if not runner.is_file():
+        raise SystemExit(f"benchmark runner not found: {runner}")
+
+    env = os.environ.copy()
+    env["VDB_DISABLE_OFFICIAL_CACHE"] = "1"
+
+    ann_env: dict[str, str] = {"VDB_DISABLE_OFFICIAL_CACHE": "1"}
+    if args.primary_clusters is not None:
+        value = str(args.primary_clusters)
+        env["VDB_PRIMARY_CLUSTERS"] = value
+        ann_env["VDB_PRIMARY_CLUSTERS"] = value
+    if args.primary_probe is not None:
+        value = str(args.primary_probe)
+        env["VDB_PRIMARY_PROBE"] = value
+        ann_env["VDB_PRIMARY_PROBE"] = value
+    if args.secondary_clusters is not None:
+        value = str(args.secondary_clusters)
+        env["VDB_SECONDARY_CLUSTERS"] = value
+        ann_env["VDB_SECONDARY_CLUSTERS"] = value
+    if args.cluster_probe is not None:
+        value = str(args.cluster_probe)
+        env["VDB_FINAL_CLUSTER_PROBE"] = value
+        ann_env["VDB_FINAL_CLUSTER_PROBE"] = value
+    if args.prescore_candidates is not None:
+        value = str(args.prescore_candidates)
+        env["VDB_PRESCORE_CANDIDATES"] = value
+        ann_env["VDB_PRESCORE_CANDIDATES"] = value
+    if args.quantized_prescore_mode is not None:
+        env["VDB_QUANTIZED_PRESCORE_MODE"] = args.quantized_prescore_mode
+        ann_env["VDB_QUANTIZED_PRESCORE_MODE"] = args.quantized_prescore_mode
+    if args.coarse_prescore_dims is not None:
+        value = str(args.coarse_prescore_dims)
+        env["VDB_COARSE_PRESCORE_DIMS"] = value
+        ann_env["VDB_COARSE_PRESCORE_DIMS"] = value
+    if args.coarse_prescore_candidates is not None:
+        value = str(args.coarse_prescore_candidates)
+        env["VDB_COARSE_PRESCORE_CANDIDATES"] = value
+        ann_env["VDB_COARSE_PRESCORE_CANDIDATES"] = value
+    if args.coarse_prescore_scope is not None:
+        env["VDB_COARSE_PRESCORE_SCOPE"] = args.coarse_prescore_scope
+        ann_env["VDB_COARSE_PRESCORE_SCOPE"] = args.coarse_prescore_scope
+    if args.coarse_prescore_mode is not None:
+        env["VDB_COARSE_PRESCORE_MODE"] = args.coarse_prescore_mode
+        ann_env["VDB_COARSE_PRESCORE_MODE"] = args.coarse_prescore_mode
+    if args.local_subcluster_target is not None:
+        value = str(args.local_subcluster_target)
+        env["VDB_LOCAL_SUBCLUSTER_TARGET"] = value
+        ann_env["VDB_LOCAL_SUBCLUSTER_TARGET"] = value
+    if args.local_subcluster_probe is not None:
+        value = str(args.local_subcluster_probe)
+        env["VDB_LOCAL_SUBCLUSTER_PROBE"] = value
+        ann_env["VDB_LOCAL_SUBCLUSTER_PROBE"] = value
+    if args.local_subcluster_min_size is not None:
+        value = str(args.local_subcluster_min_size)
+        env["VDB_LOCAL_SUBCLUSTER_MIN_SIZE"] = value
+        ann_env["VDB_LOCAL_SUBCLUSTER_MIN_SIZE"] = value
+    if args.local_subcluster_routing is not None:
+        env["VDB_LOCAL_SUBCLUSTER_ROUTING"] = args.local_subcluster_routing
+        ann_env["VDB_LOCAL_SUBCLUSTER_ROUTING"] = args.local_subcluster_routing
+    if args.global_subcluster_probe is not None:
+        value = str(args.global_subcluster_probe)
+        env["VDB_GLOBAL_SUBCLUSTER_PROBE"] = value
+        ann_env["VDB_GLOBAL_SUBCLUSTER_PROBE"] = value
+    if args.enable_cluster_prune:
+        env["VDB_ENABLE_CLUSTER_PRUNE"] = "1"
+        ann_env["VDB_ENABLE_CLUSTER_PRUNE"] = "1"
+    if args.enable_leaf_supercluster_routing and args.disable_leaf_supercluster_routing:
+        raise SystemExit(
+            "choose at most one of --enable-leaf-supercluster-routing and --disable-leaf-supercluster-routing"
+        )
+    if args.enable_leaf_supercluster_routing:
+        env["VDB_ENABLE_LEAF_SUPERCLUSTER_ROUTING"] = "1"
+        ann_env["VDB_ENABLE_LEAF_SUPERCLUSTER_ROUTING"] = "1"
+    if args.disable_leaf_supercluster_routing:
+        env["VDB_ENABLE_LEAF_SUPERCLUSTER_ROUTING"] = "0"
+        ann_env["VDB_ENABLE_LEAF_SUPERCLUSTER_ROUTING"] = "0"
+    if args.enable_u8_routing and args.disable_u8_routing:
+        raise SystemExit("choose at most one of --enable-u8-routing and --disable-u8-routing")
+    if args.enable_u8_routing:
+        env["VDB_ENABLE_U8_ROUTING"] = "1"
+        ann_env["VDB_ENABLE_U8_ROUTING"] = "1"
+    if args.disable_u8_routing:
+        env["VDB_ENABLE_U8_ROUTING"] = "0"
+        ann_env["VDB_ENABLE_U8_ROUTING"] = "0"
+    if args.enable_pq_prescore and args.disable_pq_prescore:
+        raise SystemExit("choose at most one of --enable-pq-prescore and --disable-pq-prescore")
+    if args.enable_pq_prescore:
+        env["VDB_ENABLE_PQ_PRESCORE"] = "1"
+        ann_env["VDB_ENABLE_PQ_PRESCORE"] = "1"
+    if args.disable_pq_prescore:
+        env["VDB_ENABLE_PQ_PRESCORE"] = "0"
+        ann_env["VDB_ENABLE_PQ_PRESCORE"] = "0"
+    if args.pq_mode is not None:
+        env["VDB_PQ_MODE"] = args.pq_mode
+        ann_env["VDB_PQ_MODE"] = args.pq_mode
+    elif args.enable_pq_prescore:
+        env["VDB_PQ_MODE"] = "primary_residual"
+        ann_env["VDB_PQ_MODE"] = "primary_residual"
+    if args.enable_vector_radius_prune and args.disable_vector_radius_prune:
+        raise SystemExit("choose at most one of --enable-vector-radius-prune and --disable-vector-radius-prune")
+    if args.enable_block_bound_prune and args.disable_block_bound_prune:
+        raise SystemExit("choose at most one of --enable-block-bound-prune and --disable-block-bound-prune")
+    if args.enable_pq_prescore and args.enable_vector_radius_prune:
+        raise SystemExit(
+            "--enable-pq-prescore and --enable-vector-radius-prune are mutually exclusive"
+        )
+    if args.enable_block_bound_prune and args.enable_vector_radius_prune:
+        raise SystemExit(
+            "--enable-block-bound-prune and --enable-vector-radius-prune are mutually exclusive"
+        )
+    if args.enable_vector_radius_prune:
+        env["VDB_ENABLE_VECTOR_RADIUS_PRUNE"] = "1"
+        ann_env["VDB_ENABLE_VECTOR_RADIUS_PRUNE"] = "1"
+    if args.disable_vector_radius_prune:
+        env["VDB_ENABLE_VECTOR_RADIUS_PRUNE"] = "0"
+        ann_env["VDB_ENABLE_VECTOR_RADIUS_PRUNE"] = "0"
+    elif args.enable_pq_prescore:
+        env["VDB_ENABLE_VECTOR_RADIUS_PRUNE"] = "0"
+        ann_env["VDB_ENABLE_VECTOR_RADIUS_PRUNE"] = "0"
+    elif args.enable_block_bound_prune:
+        env["VDB_ENABLE_VECTOR_RADIUS_PRUNE"] = "0"
+        ann_env["VDB_ENABLE_VECTOR_RADIUS_PRUNE"] = "0"
+    if args.block_bound_dims is not None and not args.disable_block_bound_prune:
+        env["VDB_BLOCK_BOUND_DIMS"] = str(args.block_bound_dims)
+        ann_env["VDB_BLOCK_BOUND_DIMS"] = str(args.block_bound_dims)
+    if args.enable_block_bound_prune:
+        env["VDB_ENABLE_BLOCK_BOUND_PRUNE"] = "1"
+        ann_env["VDB_ENABLE_BLOCK_BOUND_PRUNE"] = "1"
+    if args.disable_block_bound_prune:
+        env["VDB_ENABLE_BLOCK_BOUND_PRUNE"] = "0"
+        ann_env["VDB_ENABLE_BLOCK_BOUND_PRUNE"] = "0"
+
+    proc = subprocess.run(
+        [str(runner), *benchmark_args],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    if args.fast:
+        benchmark = None
+        benchmark_error = None
+        try:
+            benchmark = json.loads(proc.stdout)
+        except json.JSONDecodeError as exc:
+            benchmark_error = f"failed to parse run_benchmark output: {exc}"
+
+        payload = {
+            "type": "MeasureAnnBenchmark",
+            "ann_env": ann_env,
+            "benchmark_args": benchmark_args,
+            "fast": True,
+            "benchmark": benchmark,
+            "benchmark_parse_error": benchmark_error,
+            "request_stats": None,
+            "request_stats_error": "disabled in fast mode",
+            "ann_stats": None,
+            "ann_stats_error": "disabled in fast mode",
+        }
+        if benchmark is None:
+            payload["raw_stdout"] = proc.stdout
+            payload["raw_stderr"] = proc.stderr
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        try:
+            payload = json.loads(proc.stdout)
+        except json.JSONDecodeError as exc:
+            payload = {
+                "type": "MeasureAnnBenchmark",
+                "ann_env": ann_env,
+                "benchmark_args": benchmark_args,
+                "fast": False,
+                "parse_error": f"failed to parse measure_official_benchmark_breakdown output: {exc}",
+                "raw_stdout": proc.stdout,
+                "raw_stderr": proc.stderr,
+            }
+            print(json.dumps(payload, indent=2, sort_keys=True))
+            return proc.returncode
+
+        if isinstance(payload, dict):
+            payload["type"] = "MeasureAnnBenchmark"
+            payload["ann_env"] = ann_env
+            payload["benchmark_args"] = benchmark_args
+            payload["fast"] = False
+            print(json.dumps(payload, indent=2, sort_keys=True))
+        else:
+            print(proc.stdout)
+
+    if proc.stderr.strip():
+        print(proc.stderr, file=sys.stderr, end="")
+    return proc.returncode
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

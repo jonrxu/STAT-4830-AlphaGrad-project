@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+DIR="$(cd "$(dirname "$0")" && pwd)"
+CRATE_DIR="$DIR/replay_fast"
+BIN="$CRATE_DIR/target/release/replay_search_bodies_fast"
+
+if [ ! -x "$BIN" ] || [ "$CRATE_DIR/src/main.rs" -nt "$BIN" ] || [ "$CRATE_DIR/Cargo.toml" -nt "$BIN" ]; then
+  cargo build --release --manifest-path "$CRATE_DIR/Cargo.toml" >/dev/null
+fi
+
+exec "$BIN" "$@"

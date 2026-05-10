@@ -1,0 +1,16 @@
+{
+  "integration_notes": "Do not spend this round on broad architectural rewrites unless they are already proven, because the current score already meets target and the main reported issue is non-runnability/completeness. Start from the existing successful logic, reconstruct all five sections into a complete script, and keep interfaces stable. Any optimization should be benchmarked against the measured-trial window specifically, not total remote runtime; compile cost can stay in warmup. Also address the reviewer concern about optimizer-step contract explicitly in the training loop.",
+  "performance_focus_sections": [
+    "train_eval_code",
+    "data_code",
+    "model_code"
+  ],
+  "performance_task": "Prioritize train_eval_code first: tighten the measured-trial path by reducing evaluation/TTA overhead, eliminating unnecessary syncs, keeping compile-friendly static shapes, and ensuring warmup fully amortizes compile cost. In data_code, minimize loader and decode overhead by using the cached CIFAR tensors efficiently and avoiding repeated host-device work. In model_code, only make low-risk speed tweaks such as compile-stable blocks, channels_last, fused ops, or lighter evaluation-time heads if accuracy is preserved.",
+  "reliability_focus_sections": [
+    "cli_code",
+    "setup_code",
+    "train_eval_code"
+  ],
+  "reliability_task": "Fix completeness and contract issues before any tuning: produce a full standalone script with all required CLI flags, a working --preflight smoke check, valid final JSON on the last stdout line, positive mean_time_seconds, and no truncated sections. In train_eval_code, verify optimizer/lr-scheduler/step ordering is correct and deterministic enough for warmup plus measured trial. In setup_code, remove compatibility risks with torch 2.4.1/torchvision 0.19.1 and preserve dtype consistency for compiled mixed-precision convolutions.",
+  "round_goal": "Deliver a complete runnable script that preserves the current >=94% TTA accuracy while shaving measured trial time below the current ~2.60s, without risking evaluator-contract breakage."
+}

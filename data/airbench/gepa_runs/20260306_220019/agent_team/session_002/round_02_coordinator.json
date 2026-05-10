@@ -1,0 +1,16 @@
+{
+  "integration_notes": "This round should center on train_eval_code because it controls both the near-target accuracy gap and the observed runtime failures. Favor incremental changes over architectural overhauls. If compile is retained, make it optional with automatic eager fallback. Keep section interfaces stable so data/model changes remain small and easy to validate. Preflight should exercise one real forward/backward/eval path using the exact dtype/compile settings intended for trials.",
+  "performance_focus_sections": [
+    "train_eval_code",
+    "model_code",
+    "data_code"
+  ],
+  "performance_task": "Tune the training recipe rather than chasing aggressive rewrites: adjust schedule/EMA/TTA/eval details and modest model-capacity or regularization changes that can recover the missing ~0.03 accuracy points with minimal added wall time. Prioritize fast, stable wins such as stronger-but-safe augmentation balance, label smoothing or mixup/cutmix only if already efficiently implemented, optimizer/schedule refinement, and TTA choices that improve measured accuracy without materially increasing trial time.",
+  "reliability_focus_sections": [
+    "train_eval_code",
+    "setup_code",
+    "cli_code"
+  ],
+  "reliability_task": "Harden the execution path against compile and dtype failures: keep normalization, model parameters, and convolution/bias dtypes consistent under AMP/compile; add conservative guards/fallbacks around torch.compile and preflight; avoid fragile serialization/loading behavior; and ensure CLI/preflight always produces a valid final JSON line even when warmup or compilation must be downgraded.",
+  "round_goal": "Push test-time-augmented CIFAR-10 accuracy safely above 94.00% on the single A100 while avoiding the runtime-error regressions seen in recent candidates."
+}

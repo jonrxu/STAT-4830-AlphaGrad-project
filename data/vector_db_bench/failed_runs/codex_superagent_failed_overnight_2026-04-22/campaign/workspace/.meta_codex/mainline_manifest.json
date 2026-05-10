@@ -1,0 +1,8 @@
+{
+  "best_cycle": 90,
+  "best_qps": 12482.427363581823,
+  "best_recall": 1.0,
+  "best_result_source": "full",
+  "goal_qps": 22000.0,
+  "timestamp": "2026-04-22T11:48:12+00:00"
+}

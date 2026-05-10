@@ -1,0 +1,94 @@
+{
+  "avg_latency_ms": 1.1579215750000005,
+  "concurrency": 4,
+  "duration_secs": 0.299884628,
+  "p50_latency_ms": 1.1127734999999999,
+  "p95_latency_ms": 1.6261680999999997,
+  "p99_latency_ms": 1.9271076399999998,
+  "qps": 3334.615737622937,
+  "recall": 0.9418999999999963,
+  "recall_passed": false,
+  "recall_threshold": 0.95,
+  "system_observation": {
+    "after": {
+      "cpu_cores_config": "0-3",
+      "cpu_count": 20,
+      "focus_processes": [
+        {
+          "missing": true,
+          "pid": 4014,
+          "proc_status": {
+            "name": "vector-db-skele",
+            "ppid": "4003",
+            "state": "S (sleeping)",
+            "threads": "9",
+            "vm_rss": "1069064 kB"
+          }
+        }
+      ],
+      "hostname": "modal",
+      "loadavg": {
+        "15m": 0.0,
+        "1m": 0.0,
+        "5m": 0.0,
+        "proc_loadavg": "0.00 0.00 0.00 0/0 0"
+      },
+      "meminfo": {
+        "Buffers": "0 kB",
+        "Cached": "284320 kB",
+        "MemAvailable": "261418116 kB",
+        "MemFree": "261418116 kB",
+        "MemTotal": "263390952 kB"
+      },
+      "timestamp": "2026-04-21T17:17:24.400810Z",
+      "top_processes_by_cpu": []
+    },
+    "before": {
+      "cpu_cores_config": "0-3",
+      "cpu_count": 20,
+      "focus_processes": [
+        {
+          "missing": true,
+          "pid": 4014,
+          "proc_status": {
+            "name": "vector-db-skele",
+            "ppid": "4003",
+            "state": "S (sleeping)",
+            "threads": "9",
+            "vm_rss": "21864 kB"
+          }
+        },
+        {
+          "missing": true,
+          "pid": 4023,
+          "proc_status": {
+            "name": "vector-db-bench",
+            "ppid": "4003",
+            "state": "R (running)",
+            "threads": "1",
+            "vm_rss": "13116 kB"
+          }
+        }
+      ],
+      "hostname": "modal",
+      "loadavg": {
+        "15m": 0.0,
+        "1m": 0.0,
+        "5m": 0.0,
+        "proc_loadavg": "0.00 0.00 0.00 0/0 0"
+      },
+      "meminfo": {
+        "Buffers": "0 kB",
+        "Cached": "285452 kB",
+        "MemAvailable": "262985396 kB",
+        "MemFree": "262985396 kB",
+        "MemTotal": "263390952 kB"
+      },
+      "timestamp": "2026-04-21T17:17:07.781522Z",
+      "top_processes_by_cpu": []
+    },
+    "benchmark_pid": 4023,
+    "server_pid": 4014
+  },
+  "total_queries": 1000
+}

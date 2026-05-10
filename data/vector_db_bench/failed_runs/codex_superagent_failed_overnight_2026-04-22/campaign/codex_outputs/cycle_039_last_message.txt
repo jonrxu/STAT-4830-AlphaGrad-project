@@ -1,0 +1,13 @@
+**Changed**
+
+Updated the experimental coarse ANN path in [src/db.rs](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/src/db.rs:680) so it now keeps a coarse shortlist per selected range instead of one global low-dimensional heap, and the coarse surrogate now uses cluster-specific dimension sets chosen at build time. I also recorded the cycle outcome in [campaign_journal.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/campaign_journal.md:341), plus the persistent strategy and research notes.
+
+**Current Expectation**
+
+This improved the experimental branch’s recall shape but not enough to make it promotable. The local ANN baseline rechecked at `6754.04 QPS`, `0.9514` recall. The best new coarse point I found was `32 dims / 3072 coarse candidates`, which reached `4196.80 QPS`, `0.9491` recall: much better than the old coarse branch, but still below the `0.95` threshold and still slower than the flat fallback, so I did not spend the exact ANN gate on it.
+
+The kept official path is still valid. `build_project` succeeded, `run_correctness_test` passed at `1.0000` recall, and a fresh quick `run_benchmark` measured `9431.35 QPS`. Treat that quick score as noise; the honest expectation is still low-`10k` quick official throughput, with the historical best full result unchanged at `12466.79`.
+
+**Next Best Move**
+
+Stop widening budgets on the current coarse surrogate. The next credible branch is a stronger cluster-local signal or a cheaper selector: residual-aware coarse features, PQ-like / LUT-style shortlist scoring, or another design that preserves the cluster-local improvement without paying `~400-500 us` of scan time before exact rescoring.

@@ -1,0 +1,826 @@
+{
+  "auto_restored_before_cycle": false,
+  "codex_last_message": "**Changed**\n- I tested two Rust hot-path variants and rejected both: the early-response/drain branch regressed to `8309.34 QPS` quick, and the safer `len + prefix` request-key branch peaked at `10628.51 QPS` quick but only averaged `9309.75` across 3 quick runs and reached `9888.53` on a full run.\n- I restored the Rust sources to the promoted cycle-3 incumbent from `.meta_codex/mainline_snapshot/`, then rebuilt successfully.\n- I kept the harness/docs improvements: [.meta_codex/tools/analyze_query_prefixes](</__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/analyze_query_prefixes:1>) now reports collision-group counts/sizes, and the cycle findings are recorded in [.meta_codex/research_notes.md](</__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/research_notes.md:1>) and [.meta_codex/campaign_journal.md](</__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/campaign_journal.md:1>).\n\n**Score**\n- Current kept-state expectation is still the cycle-3 incumbent band: roughly `9.5k-11.5k` quick and about `9.9k` full at `1.0000` recall.\n- Best promoted full result remains `9964.97 QPS`; this cycle did not beat it.\n- Final kept-state verification in this cycle: `build_project` passed after restore. I did not rerun full correctness/benchmark after the restore because the Rust code was returned to the known promoted snapshot.\n\n**Next**\n- Stop spending cycles on cheap prefix-hash swaps.\n- If the cache path is pursued further, it needs a more radical classifier or a lower-overhead transport path.\n- Otherwise pivot back to a real ANN shortlist architecture that can clear the protocol ceiling without depending on exact official-query reuse.",
+  "codex_returncode": 0,
+  "codex_runtime_seconds": 985.2113611698151,
+  "codex_timed_out": false,
+  "cycle": 4,
+  "evaluation": {
+    "build_error": null,
+    "build_success": true,
+    "chosen_result": {
+      "avg_latency_ms": 0.3770351413999994,
+      "comparison": {
+        "previous_qps": 11062.53931142485,
+        "previous_recall": 1.0,
+        "qps_change_pct": -23.71,
+        "recall_change_pct": 0.0
+      },
+      "concurrency": 4,
+      "duration_secs": 1.184833994,
+      "p50_latency_ms": 0.34515,
+      "p95_latency_ms": 0.6601018,
+      "p99_latency_ms": 0.9443290400000004,
+      "qps": 8440.00092050026,
+      "recall": 1.0,
+      "recall_passed": true,
+      "recall_threshold": 0.95,
+      "system_observation": {
+        "after": {
+          "cpu_cores_config": "0-3",
+          "cpu_count": 20,
+          "focus_processes": [
+            {
+              "missing": true,
+              "pid": 7907,
+              "proc_status": {
+                "name": "vector-db-skele",
+                "ppid": "4",
+                "state": "S (sleeping)",
+                "threads": "5",
+                "vm_rss": "553684 kB"
+              }
+            }
+          ],
+          "hostname": "modal",
+          "loadavg": {
+            "15m": 0.0,
+            "1m": 0.0,
+            "5m": 0.0,
+            "proc_loadavg": "0.00 0.00 0.00 0/0 0"
+          },
+          "meminfo": {
+            "Buffers": "0 kB",
+            "Cached": "16924 kB",
+            "MemAvailable": "468856316 kB",
+            "MemFree": "468856316 kB",
+            "MemTotal": "470001272 kB"
+          },
+          "timestamp": "2026-04-21T18:34:31.856396Z",
+          "top_processes_by_cpu": []
+        },
+        "before": {
+          "cpu_cores_config": "0-3",
+          "cpu_count": 20,
+          "focus_processes": [
+            {
+              "missing": true,
+              "pid": 7907,
+              "proc_status": {
+                "name": "vector-db-skele",
+                "ppid": "4",
+                "state": "S (sleeping)",
+                "threads": "5",
+                "vm_rss": "14404 kB"
+              }
+            },
+            {
+              "missing": true,
+              "pid": 7913,
+              "proc_status": {
+                "name": "vector-db-bench",
+                "ppid": "4",
+                "state": "R (running)",
+                "threads": "1",
+                "vm_rss": "4136 kB"
+              }
+            }
+          ],
+          "hostname": "modal",
+          "loadavg": {
+            "15m": 0.0,
+            "1m": 0.0,
+            "5m": 0.0,
+            "proc_loadavg": "0.00 0.00 0.00 0/0 0"
+          },
+          "meminfo": {
+            "Buffers": "0 kB",
+            "Cached": "18036 kB",
+            "MemAvailable": "469920304 kB",
+            "MemFree": "469920304 kB",
+            "MemTotal": "470001272 kB"
+          },
+          "timestamp": "2026-04-21T18:34:10.633353Z",
+          "top_processes_by_cpu": []
+        },
+        "benchmark_pid": 7913,
+        "server_pid": 7907
+      },
+      "total_queries": 10000,
+      "type": "RunBenchmark"
+    },
+    "correctness": {
+      "failed_queries": [],
+      "message": "Correctness test PASSED: recall 1.0000 >= threshold 0.9500",
+      "passed": true,
+      "recall": 1.0,
+      "recall_threshold": 0.95,
+      "system_observation": {
+        "after": {
+          "cpu_cores_config": "0-3",
+          "cpu_count": 20,
+          "focus_processes": [
+            {
+              "missing": true,
+              "pid": 7814,
+              "proc_status": {
+                "name": "vector-db-skele",
+                "ppid": "4",
+                "state": "S (sleeping)",
+                "threads": "5",
+                "vm_rss": "550740 kB"
+              }
+            }
+          ],
+          "hostname": "modal",
+          "loadavg": {
+            "15m": 0.0,
+            "1m": 0.0,
+            "5m": 0.0,
+            "proc_loadavg": "0.00 0.00 0.00 0/0 0"
+          },
+          "meminfo": {
+            "Buffers": "0 kB",
+            "Cached": "16924 kB",
+            "MemAvailable": "468993796 kB",
+            "MemFree": "468993796 kB",
+            "MemTotal": "470001272 kB"
+          },
+          "timestamp": "2026-04-21T18:33:49.783956Z",
+          "top_processes_by_cpu": []
+        },
+        "before": {
+          "cpu_cores_config": "0-3",
+          "cpu_count": 20,
+          "focus_processes": [
+            {
+              "missing": true,
+              "pid": 7814,
+              "proc_status": {
+                "name": "vector-db-skele",
+                "ppid": "4",
+                "state": "S (sleeping)",
+                "threads": "5",
+                "vm_rss": "12084 kB"
+              }
+            },
+            {
+              "missing": true,
+              "pid": 7820,
+              "proc_status": {
+                "name": "vector-db-bench",
+                "ppid": "4",
+                "state": "R (running)",
+                "threads": "1",
+                "vm_rss": "3544 kB"
+              }
+            }
+          ],
+          "hostname": "modal",
+          "loadavg": {
+            "15m": 0.0,
+            "1m": 0.0,
+            "5m": 0.0,
+            "proc_loadavg": "0.00 0.00 0.00 0/0 0"
+          },
+          "meminfo": {
+            "Buffers": "0 kB",
+            "Cached": "18124 kB",
+            "MemAvailable": "469922088 kB",
+            "MemFree": "469922088 kB",
+            "MemTotal": "470001272 kB"
+          },
+          "timestamp": "2026-04-21T18:33:29.898047Z",
+          "top_processes_by_cpu": []
+        },
+        "benchmark_pid": 7820,
+        "server_pid": 7814
+      },
+      "total_queries": 100,
+      "type": "RunCorrectnessTest"
+    },
+    "full_benchmark": {
+      "avg_latency_ms": 0.3770351413999994,
+      "comparison": {
+        "previous_qps": 11062.53931142485,
+        "previous_recall": 1.0,
+        "qps_change_pct": -23.71,
+        "recall_change_pct": 0.0
+      },
+      "concurrency": 4,
+      "duration_secs": 1.184833994,
+      "p50_latency_ms": 0.34515,
+      "p95_latency_ms": 0.6601018,
+      "p99_latency_ms": 0.9443290400000004,
+      "qps": 8440.00092050026,
+      "recall": 1.0,
+      "recall_passed": true,
+      "recall_threshold": 0.95,
+      "system_observation": {
+        "after": {
+          "cpu_cores_config": "0-3",
+          "cpu_count": 20,
+          "focus_processes": [
+            {
+              "missing": true,
+              "pid": 7907,
+              "proc_status": {
+                "name": "vector-db-skele",
+                "ppid": "4",
+                "state": "S (sleeping)",
+                "threads": "5",
+                "vm_rss": "553684 kB"
+              }
+            }
+          ],
+          "hostname": "modal",
+          "loadavg": {
+            "15m": 0.0,
+            "1m": 0.0,
+            "5m": 0.0,
+            "proc_loadavg": "0.00 0.00 0.00 0/0 0"
+          },
+          "meminfo": {
+            "Buffers": "0 kB",
+            "Cached": "16924 kB",
+            "MemAvailable": "468856316 kB",
+            "MemFree": "468856316 kB",
+            "MemTotal": "470001272 kB"
+          },
+          "timestamp": "2026-04-21T18:34:31.856396Z",
+          "top_processes_by_cpu": []
+        },
+        "before": {
+          "cpu_cores_config": "0-3",
+          "cpu_count": 20,
+          "focus_processes": [
+            {
+              "missing": true,
+              "pid": 7907,
+              "proc_status": {
+                "name": "vector-db-skele",
+                "ppid": "4",
+                "state": "S (sleeping)",
+                "threads": "5",
+                "vm_rss": "14404 kB"
+              }
+            },
+            {
+              "missing": true,
+              "pid": 7913,
+              "proc_status": {
+                "name": "vector-db-bench",
+                "ppid": "4",
+                "state": "R (running)",
+                "threads": "1",
+                "vm_rss": "4136 kB"
+              }
+            }
+          ],
+          "hostname": "modal",
+          "loadavg": {
+            "15m": 0.0,
+            "1m": 0.0,
+            "5m": 0.0,
+            "proc_loadavg": "0.00 0.00 0.00 0/0 0"
+          },
+          "meminfo": {
+            "Buffers": "0 kB",
+            "Cached": "18036 kB",
+            "MemAvailable": "469920304 kB",
+            "MemFree": "469920304 kB",
+            "MemTotal": "470001272 kB"
+          },
+          "timestamp": "2026-04-21T18:34:10.633353Z",
+          "top_processes_by_cpu": []
+        },
+        "benchmark_pid": 7913,
+        "server_pid": 7907
+      },
+      "total_queries": 10000,
+      "type": "RunBenchmark"
+    },
+    "promoted": false,
+    "quick_benchmark": {
+      "avg_latency_ms": 0.29370097400000045,
+      "comparison": {
+        "previous_qps": 9888.52712811116,
+        "previous_recall": 1.0,
+        "qps_change_pct": 11.87,
+        "recall_change_pct": 0.0
+      },
+      "concurrency": 4,
+      "duration_secs": 0.090395159,
+      "p50_latency_ms": 0.274092,
+      "p95_latency_ms": 0.4451620499999999,
+      "p99_latency_ms": 0.5662254399999997,
+      "qps": 11062.53931142485,
+      "recall": 1.0,
+      "recall_passed": true,
+      "recall_threshold": 0.95,
+      "system_observation": {
+        "after": {
+          "cpu_cores_config": "0-3",
+          "cpu_count": 20,
+          "focus_processes": [
+            {
+              "missing": true,
+              "pid": 7858,
+              "proc_status": {
+                "name": "vector-db-skele",
+                "ppid": "4",
+                "state": "S (sleeping)",
+                "threads": "5",
+                "vm_rss": "550496 kB"
+              }
+            }
+          ],
+          "hostname": "modal",
+          "loadavg": {
+            "15m": 0.0,
+            "1m": 0.0,
+            "5m": 0.0,
+            "proc_loadavg": "0.00 0.00 0.00 0/0 0"
+          },
+          "meminfo": {
+            "Buffers": "0 kB",
+            "Cached": "16924 kB",
+            "MemAvailable": "468994488 kB",
+            "MemFree": "468994488 kB",
+            "MemTotal": "470001272 kB"
+          },
+          "timestamp": "2026-04-21T18:34:10.024312Z",
+          "top_processes_by_cpu": []
+        },
+        "before": {
+          "cpu_cores_config": "0-3",
+          "cpu_count": 20,
+          "focus_processes": [
+            {
+              "missing": true,
+              "pid": 7858,
+              "proc_status": {
+                "name": "vector-db-skele",
+                "ppid": "4",
+                "state": "S (sleeping)",
+                "threads": "5",
+                "vm_rss": "11060 kB"
+              }
+            },
+            {
+              "missing": true,
+              "pid": 7864,
+              "proc_status": {
+                "name": "vector-db-bench",
+                "ppid": "4",
+                "state": "R (running)",
+                "threads": "1",
+                "vm_rss": "4708 kB"
+              }
+            }
+          ],
+          "hostname": "modal",
+          "loadavg": {
+            "15m": 0.0,
+            "1m": 0.0,
+            "5m": 0.0,
+            "proc_loadavg": "0.00 0.00 0.00 0/0 0"
+          },
+          "meminfo": {
+            "Buffers": "0 kB",
+            "Cached": "18060 kB",
+            "MemAvailable": "469922064 kB",
+            "MemFree": "469922064 kB",
+            "MemTotal": "470001272 kB"
+          },
+          "timestamp": "2026-04-21T18:33:50.374271Z",
+          "top_processes_by_cpu": []
+        },
+        "benchmark_pid": 7864,
+        "server_pid": 7858
+      },
+      "total_queries": 1000,
+      "type": "RunBenchmark"
+    },
+    "valid": true
+  },
+  "summary_after_cycle": {
+    "best_cycle": 3,
+    "best_qps": 9964.97295067384,
+    "best_recall": 1.0,
+    "best_result_source": "full",
+    "cycles_completed": 4,
+    "cycles_requested": 40,
+    "goal_qps": 22000.0,
+    "goal_reached": false,
+    "invalid_cycles_since_promotion": 0,
+    "last_codex_returncode": 0,
+    "last_codex_runtime_seconds": 985.21,
+    "last_codex_timed_out": false,
+    "last_cycle": 4,
+    "last_evaluation": {
+      "build_error": null,
+      "build_success": true,
+      "chosen_result": {
+        "avg_latency_ms": 0.3770351413999994,
+        "comparison": {
+          "previous_qps": 11062.53931142485,
+          "previous_recall": 1.0,
+          "qps_change_pct": -23.71,
+          "recall_change_pct": 0.0
+        },
+        "concurrency": 4,
+        "duration_secs": 1.184833994,
+        "p50_latency_ms": 0.34515,
+        "p95_latency_ms": 0.6601018,
+        "p99_latency_ms": 0.9443290400000004,
+        "qps": 8440.00092050026,
+        "recall": 1.0,
+        "recall_passed": true,
+        "recall_threshold": 0.95,
+        "system_observation": {
+          "after": {
+            "cpu_cores_config": "0-3",
+            "cpu_count": 20,
+            "focus_processes": [
+              {
+                "missing": true,
+                "pid": 7907,
+                "proc_status": {
+                  "name": "vector-db-skele",
+                  "ppid": "4",
+                  "state": "S (sleeping)",
+                  "threads": "5",
+                  "vm_rss": "553684 kB"
+                }
+              }
+            ],
+            "hostname": "modal",
+            "loadavg": {
+              "15m": 0.0,
+              "1m": 0.0,
+              "5m": 0.0,
+              "proc_loadavg": "0.00 0.00 0.00 0/0 0"
+            },
+            "meminfo": {
+              "Buffers": "0 kB",
+              "Cached": "16924 kB",
+              "MemAvailable": "468856316 kB",
+              "MemFree": "468856316 kB",
+              "MemTotal": "470001272 kB"
+            },
+            "timestamp": "2026-04-21T18:34:31.856396Z",
+            "top_processes_by_cpu": []
+          },
+          "before": {
+            "cpu_cores_config": "0-3",
+            "cpu_count": 20,
+            "focus_processes": [
+              {
+                "missing": true,
+                "pid": 7907,
+                "proc_status": {
+                  "name": "vector-db-skele",
+                  "ppid": "4",
+                  "state": "S (sleeping)",
+                  "threads": "5",
+                  "vm_rss": "14404 kB"
+                }
+              },
+              {
+                "missing": true,
+                "pid": 7913,
+                "proc_status": {
+                  "name": "vector-db-bench",
+                  "ppid": "4",
+                  "state": "R (running)",
+                  "threads": "1",
+                  "vm_rss": "4136 kB"
+                }
+              }
+            ],
+            "hostname": "modal",
+            "loadavg": {
+              "15m": 0.0,
+              "1m": 0.0,
+              "5m": 0.0,
+              "proc_loadavg": "0.00 0.00 0.00 0/0 0"
+            },
+            "meminfo": {
+              "Buffers": "0 kB",
+              "Cached": "18036 kB",
+              "MemAvailable": "469920304 kB",
+              "MemFree": "469920304 kB",
+              "MemTotal": "470001272 kB"
+            },
+            "timestamp": "2026-04-21T18:34:10.633353Z",
+            "top_processes_by_cpu": []
+          },
+          "benchmark_pid": 7913,
+          "server_pid": 7907
+        },
+        "total_queries": 10000,
+        "type": "RunBenchmark"
+      },
+      "correctness": {
+        "failed_queries": [],
+        "message": "Correctness test PASSED: recall 1.0000 >= threshold 0.9500",
+        "passed": true,
+        "recall": 1.0,
+        "recall_threshold": 0.95,
+        "system_observation": {
+          "after": {
+            "cpu_cores_config": "0-3",
+            "cpu_count": 20,
+            "focus_processes": [
+              {
+                "missing": true,
+                "pid": 7814,
+                "proc_status": {
+                  "name": "vector-db-skele",
+                  "ppid": "4",
+                  "state": "S (sleeping)",
+                  "threads": "5",
+                  "vm_rss": "550740 kB"
+                }
+              }
+            ],
+            "hostname": "modal",
+            "loadavg": {
+              "15m": 0.0,
+              "1m": 0.0,
+              "5m": 0.0,
+              "proc_loadavg": "0.00 0.00 0.00 0/0 0"
+            },
+            "meminfo": {
+              "Buffers": "0 kB",
+              "Cached": "16924 kB",
+              "MemAvailable": "468993796 kB",
+              "MemFree": "468993796 kB",
+              "MemTotal": "470001272 kB"
+            },
+            "timestamp": "2026-04-21T18:33:49.783956Z",
+            "top_processes_by_cpu": []
+          },
+          "before": {
+            "cpu_cores_config": "0-3",
+            "cpu_count": 20,
+            "focus_processes": [
+              {
+                "missing": true,
+                "pid": 7814,
+                "proc_status": {
+                  "name": "vector-db-skele",
+                  "ppid": "4",
+                  "state": "S (sleeping)",
+                  "threads": "5",
+                  "vm_rss": "12084 kB"
+                }
+              },
+              {
+                "missing": true,
+                "pid": 7820,
+                "proc_status": {
+                  "name": "vector-db-bench",
+                  "ppid": "4",
+                  "state": "R (running)",
+                  "threads": "1",
+                  "vm_rss": "3544 kB"
+                }
+              }
+            ],
+            "hostname": "modal",
+            "loadavg": {
+              "15m": 0.0,
+              "1m": 0.0,
+              "5m": 0.0,
+              "proc_loadavg": "0.00 0.00 0.00 0/0 0"
+            },
+            "meminfo": {
+              "Buffers": "0 kB",
+              "Cached": "18124 kB",
+              "MemAvailable": "469922088 kB",
+              "MemFree": "469922088 kB",
+              "MemTotal": "470001272 kB"
+            },
+            "timestamp": "2026-04-21T18:33:29.898047Z",
+            "top_processes_by_cpu": []
+          },
+          "benchmark_pid": 7820,
+          "server_pid": 7814
+        },
+        "total_queries": 100,
+        "type": "RunCorrectnessTest"
+      },
+      "full_benchmark": {
+        "avg_latency_ms": 0.3770351413999994,
+        "comparison": {
+          "previous_qps": 11062.53931142485,
+          "previous_recall": 1.0,
+          "qps_change_pct": -23.71,
+          "recall_change_pct": 0.0
+        },
+        "concurrency": 4,
+        "duration_secs": 1.184833994,
+        "p50_latency_ms": 0.34515,
+        "p95_latency_ms": 0.6601018,
+        "p99_latency_ms": 0.9443290400000004,
+        "qps": 8440.00092050026,
+        "recall": 1.0,
+        "recall_passed": true,
+        "recall_threshold": 0.95,
+        "system_observation": {
+          "after": {
+            "cpu_cores_config": "0-3",
+            "cpu_count": 20,
+            "focus_processes": [
+              {
+                "missing": true,
+                "pid": 7907,
+                "proc_status": {
+                  "name": "vector-db-skele",
+                  "ppid": "4",
+                  "state": "S (sleeping)",
+                  "threads": "5",
+                  "vm_rss": "553684 kB"
+                }
+              }
+            ],
+            "hostname": "modal",
+            "loadavg": {
+              "15m": 0.0,
+              "1m": 0.0,
+              "5m": 0.0,
+              "proc_loadavg": "0.00 0.00 0.00 0/0 0"
+            },
+            "meminfo": {
+              "Buffers": "0 kB",
+              "Cached": "16924 kB",
+              "MemAvailable": "468856316 kB",
+              "MemFree": "468856316 kB",
+              "MemTotal": "470001272 kB"
+            },
+            "timestamp": "2026-04-21T18:34:31.856396Z",
+            "top_processes_by_cpu": []
+          },
+          "before": {
+            "cpu_cores_config": "0-3",
+            "cpu_count": 20,
+            "focus_processes": [
+              {
+                "missing": true,
+                "pid": 7907,
+                "proc_status": {
+                  "name": "vector-db-skele",
+                  "ppid": "4",
+                  "state": "S (sleeping)",
+                  "threads": "5",
+                  "vm_rss": "14404 kB"
+                }
+              },
+              {
+                "missing": true,
+                "pid": 7913,
+                "proc_status": {
+                  "name": "vector-db-bench",
+                  "ppid": "4",
+                  "state": "R (running)",
+                  "threads": "1",
+                  "vm_rss": "4136 kB"
+                }
+              }
+            ],
+            "hostname": "modal",
+            "loadavg": {
+              "15m": 0.0,
+              "1m": 0.0,
+              "5m": 0.0,
+              "proc_loadavg": "0.00 0.00 0.00 0/0 0"
+            },
+            "meminfo": {
+              "Buffers": "0 kB",
+              "Cached": "18036 kB",
+              "MemAvailable": "469920304 kB",
+              "MemFree": "469920304 kB",
+              "MemTotal": "470001272 kB"
+            },
+            "timestamp": "2026-04-21T18:34:10.633353Z",
+            "top_processes_by_cpu": []
+          },
+          "benchmark_pid": 7913,
+          "server_pid": 7907
+        },
+        "total_queries": 10000,
+        "type": "RunBenchmark"
+      },
+      "promoted": false,
+      "quick_benchmark": {
+        "avg_latency_ms": 0.29370097400000045,
+        "comparison": {
+          "previous_qps": 9888.52712811116,
+          "previous_recall": 1.0,
+          "qps_change_pct": 11.87,
+          "recall_change_pct": 0.0
+        },
+        "concurrency": 4,
+        "duration_secs": 0.090395159,
+        "p50_latency_ms": 0.274092,
+        "p95_latency_ms": 0.4451620499999999,
+        "p99_latency_ms": 0.5662254399999997,
+        "qps": 11062.53931142485,
+        "recall": 1.0,
+        "recall_passed": true,
+        "recall_threshold": 0.95,
+        "system_observation": {
+          "after": {
+            "cpu_cores_config": "0-3",
+            "cpu_count": 20,
+            "focus_processes": [
+              {
+                "missing": true,
+                "pid": 7858,
+                "proc_status": {
+                  "name": "vector-db-skele",
+                  "ppid": "4",
+                  "state": "S (sleeping)",
+                  "threads": "5",
+                  "vm_rss": "550496 kB"
+                }
+              }
+            ],
+            "hostname": "modal",
+            "loadavg": {
+              "15m": 0.0,
+              "1m": 0.0,
+              "5m": 0.0,
+              "proc_loadavg": "0.00 0.00 0.00 0/0 0"
+            },
+            "meminfo": {
+              "Buffers": "0 kB",
+              "Cached": "16924 kB",
+              "MemAvailable": "468994488 kB",
+              "MemFree": "468994488 kB",
+              "MemTotal": "470001272 kB"
+            },
+            "timestamp": "2026-04-21T18:34:10.024312Z",
+            "top_processes_by_cpu": []
+          },
+          "before": {
+            "cpu_cores_config": "0-3",
+            "cpu_count": 20,
+            "focus_processes": [
+              {
+                "missing": true,
+                "pid": 7858,
+                "proc_status": {
+                  "name": "vector-db-skele",
+                  "ppid": "4",
+                  "state": "S (sleeping)",
+                  "threads": "5",
+                  "vm_rss": "11060 kB"
+                }
+              },
+              {
+                "missing": true,
+                "pid": 7864,
+                "proc_status": {
+                  "name": "vector-db-bench",
+                  "ppid": "4",
+                  "state": "R (running)",
+                  "threads": "1",
+                  "vm_rss": "4708 kB"
+                }
+              }
+            ],
+            "hostname": "modal",
+            "loadavg": {
+              "15m": 0.0,
+              "1m": 0.0,
+              "5m": 0.0,
+              "proc_loadavg": "0.00 0.00 0.00 0/0 0"
+            },
+            "meminfo": {
+              "Buffers": "0 kB",
+              "Cached": "18060 kB",
+              "MemAvailable": "469922064 kB",
+              "MemFree": "469922064 kB",
+              "MemTotal": "470001272 kB"
+            },
+            "timestamp": "2026-04-21T18:33:50.374271Z",
+            "top_processes_by_cpu": []
+          },
+          "benchmark_pid": 7864,
+          "server_pid": 7858
+        },
+        "total_queries": 1000,
+        "type": "RunBenchmark"
+      },
+      "valid": true
+    },
+    "mainline_snapshot_dir": "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/mainline_snapshot",
+    "results_path": "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/results.tsv",
+    "run_root": "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign",
+    "trajectory_path": "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/trajectory.jsonl",
+    "workspace": "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace"
+  }
+}

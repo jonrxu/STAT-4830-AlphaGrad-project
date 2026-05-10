@@ -1,0 +1,17 @@
+{
+  "auto_restore_after_invalid_cycles": 2,
+  "bench_repo": "/opt/vector-db-bench",
+  "blank_seed_source": "/opt/vector-db-bench/skeleton",
+  "bootstrap_dir": "/opt/scripts/vector_db_bench/qwen3_meta/meta_harness_codex_superagent/bootstrap",
+  "codex_enable_web_search": true,
+  "cpu_cores": "0-3",
+  "cycles": 100,
+  "data_dir": "/opt/vdb-data",
+  "full_benchmark_threshold_ratio": 0.97,
+  "goal_qps": 22000.0,
+  "modal_eval": false,
+  "modal_script_path": "/opt/scripts/vector_db_bench/modal_vdb_eval.py",
+  "quick_benchmark_queries": 1000,
+  "run_root": "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign",
+  "workspace": "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace"
+}

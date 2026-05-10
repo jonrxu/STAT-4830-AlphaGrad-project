@@ -1,0 +1,16 @@
+**Changed**
+
+- [src/db.rs](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/src/db.rs:1) and [src/distance.rs](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/src/distance.rs:1) now have an opt-in experimental ANN branch behind `VDB_COARSE_PRESCORE_DIMS`, plus extra ANN stats for `rescored_candidates`. I tried two variants: an approximate two-stage coarse prescore, then a safer ordered-dimension early-abort scan. Neither was good enough to promote.
+- The ANN wrappers in [.meta_codex/tools/measure_ann_benchmark](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/measure_ann_benchmark:1), [.meta_codex/tools/measure_ann_search_only](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/measure_ann_search_only:1), [.meta_codex/tools/sweep_ann_benchmark](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/sweep_ann_benchmark:1), and [.meta_codex/tools/sweep_ann_search_only](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/sweep_ann_search_only:1) now expose the coarse knobs, and I updated the persistent notes in [.meta_codex/strategy.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/strategy.md:1), [.meta_codex/research_notes.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/research_notes.md:1), [.meta_codex/campaign_journal.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/campaign_journal.md:1), and [.meta_codex/tools/README.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/README.md:1).
+
+**Current Expectation**
+
+- Clean serial official validation is still valid: `run_correctness_test` passed at `1.0000` recall, and serial quick `run_benchmark` reached `12076.51 QPS`.
+- The wider exact ANN flat sweep over `cluster_probe 138-144` and `prescore 352-448` topped out at only `5398.56 QPS`, `0.9554` recall (`14 / 144 / 416`), which is below the cycle-35 kept best `5529.23` at `14 / 138 / 416`. I did not change the default ANN fallback budgets.
+- The experimental coarse branch is not promotable. The approximate version collapsed recall; the ordered early-abort version preserved recall but still regressed to roughly `4.6k` search-only QPS even while pruning about `10.5k` of `12.4k` vectors/query from full accumulation.
+
+**Next Best Move**
+
+Stop spending cycles on flat budget sweeps unless a new search mechanism changes the cost curve first. The best next bet is either:
+1. profile and rewrite the ordered early-abort kernel so its pruning actually transfers, or
+2. pivot to a real compressed shortlist/routing stage that materially reduces the `~12.4k` scanned-vector budget before exact validation.

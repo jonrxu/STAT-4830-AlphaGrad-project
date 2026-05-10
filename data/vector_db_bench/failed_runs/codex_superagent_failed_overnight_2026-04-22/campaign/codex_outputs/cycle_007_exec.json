@@ -1,0 +1,26 @@
+{
+  "argv": [
+    "/usr/local/bin/codex",
+    "exec",
+    "--ephemeral",
+    "--skip-git-repo-check",
+    "--color",
+    "never",
+    "--json",
+    "--sandbox",
+    "danger-full-access",
+    "-C",
+    "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace",
+    "--output-last-message",
+    "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/codex_outputs/cycle_007_last_message.txt",
+    "--enable",
+    "web_search_request",
+    "-"
+  ],
+  "events_path": "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/codex_outputs/cycle_007_events.jsonl",
+  "last_message": "**Changed**\n\nAdded [capture_request_shapes](</__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/capture_request_shapes:1>) plus a README entry so future cycles can capture the official benchmark client\u2019s raw reqwest HTTP shape locally. That confirmed plain `http://` search requests are very stable here: lower-case `content-type`, `accept`, `host`, `content-length`, with official compact search bodies in the `572..648` byte range.\n\nI used that data to try a connection-local fixed-header search parser in `src/server.rs`. It stayed correct, but clean serial quick reruns regressed to `11440.96`, `11369.62`, and `11205.93` QPS, all at `1.0000` recall, so I reverted `src/server.rs` to the known-good mainline state. I recorded the result in [research_notes.md](</__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/research_notes.md:1>) and [campaign_journal.md](</__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/campaign_journal.md:1>). `build_project` passed after the restore.\n\n**Score**\n\nThe kept workspace is back on the incumbent Rust path, so score expectations are unchanged. Best known valid full remains `11821.60` QPS at `1.0000` recall; the discarded cycle-7 parser branch was worse. I rebuilt after restore, but I did not rerun a full benchmark on the restored snapshot.\n\n**Next**\n\nThe next best move is to use the new wire-capture helper to prototype a stronger exact request classifier or body-extraction path during socket read, so the hot path reduces request-key construction work directly. Current evidence says a per-connection fixed header template is not enough.",
+  "returncode": 0,
+  "runtime_seconds": 783.379177570343,
+  "stderr": "",
+  "timed_out": false
+}

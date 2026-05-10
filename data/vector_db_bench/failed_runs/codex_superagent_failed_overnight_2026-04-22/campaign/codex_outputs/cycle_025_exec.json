@@ -1,0 +1,26 @@
+{
+  "argv": [
+    "/usr/local/bin/codex",
+    "exec",
+    "--ephemeral",
+    "--skip-git-repo-check",
+    "--color",
+    "never",
+    "--json",
+    "--sandbox",
+    "danger-full-access",
+    "-C",
+    "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace",
+    "--output-last-message",
+    "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/codex_outputs/cycle_025_last_message.txt",
+    "--enable",
+    "web_search_request",
+    "-"
+  ],
+  "events_path": "/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/codex_outputs/cycle_025_events.jsonl",
+  "last_message": "Changed [src/distance.rs](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/src/distance.rs:1) to use real SIMD for the ANN hot path: direct AVX2 `u8` prescoring plus AVX/F16C `f16` rerank. I also promoted the best validated ANN fallback defaults in [src/db.rs](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/src/db.rs:1) to `14 / 136 / 1280`, added [.meta_codex/tools/sweep_ann_benchmark](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/sweep_ann_benchmark:1), and updated the cycle notes in [.meta_codex/campaign_journal.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/campaign_journal.md:1), [.meta_codex/research_notes.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/research_notes.md:1), and [.meta_codex/strategy.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/strategy.md:1).\n\nValidation stayed official. `build_project` passed, `run_correctness_test` still passed at `1.0000` recall, and the scored default quick run was `11131.28 QPS`, so no promotion is expected from the cache path this cycle. The ANN branch improved materially: the old conservative ANN point (`14 / 160 / 2048`) moved from `1372.23` to `2923.41 QPS` on the exact quick benchmark at the same recall, and the best validated ANN point this cycle was `14 / 136 / 1280` at `4067.00 QPS`, `0.9509` recall. `14 / 134 / 1280` failed at `0.9494`, so `136` clusters is the current safe edge.\n\nCurrent expectation is unchanged for the scored path, roughly `11k-12k` quick and still below the best promoted full result, but the ANN path is now in the `~3.8k-4.1k` valid band instead of `~1.4k`. As of April 22, 2026, the public target still appears to be the `21.5k` two-stage ANN class described here: [Vector DB Bench](https://vector-db-bench.kcores.com/) and [Lushbinary, April 8 2026](https://lushbinary.com/blog/glm-5-1-vectordbbench-6000-tool-calls-21k-qps/). The next best move is not more transport work and not more scalar-kernel cleanup; it is cheaper routing and stronger pruning on top of this new kernel, especially `u8` centroid routing and per-cluster prune thresholds/radii.",
+  "returncode": 0,
+  "runtime_seconds": 1096.9366791248322,
+  "stderr": "",
+  "timed_out": false
+}

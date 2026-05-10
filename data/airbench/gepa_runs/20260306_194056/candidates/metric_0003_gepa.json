@@ -1,0 +1,16 @@
+{
+  "actual_device_name": null,
+  "failure_type": "runtime_error",
+  "gpu_mismatch_attempts": 0,
+  "mean_accuracy": null,
+  "mean_time_seconds": null,
+  "message": "candidate exited with code 1",
+  "remote_runtime_seconds": 233.899489402771,
+  "requested_gpu": null,
+  "runtime_seconds": 253.37809896469116,
+  "score": 0.0,
+  "stderr_tail": "riton_convolution_23 1.1674 ms 52.4%\n  triton_convolution_24 1.1674 ms 52.4%\n  triton_convolution_26 1.2831 ms 47.6%\n  triton_convolution_22 4.2532 ms 14.4%\nSingleProcess AUTOTUNE benchmarking takes 1.2043 seconds and 0.0022 seconds precompiling\nAUTOTUNE convolution(2000x256x7x7, 256x256x3x3)\n  convolution 0.4639 ms 100.0%\n  triton_convolution_31 0.8387 ms 55.3%\n  triton_convolution_32 0.9892 ms 46.9%\n  triton_convolution_30 0.9953 ms 46.6%\n  triton_convolution_28 1.0230 ms 45.3%\n  triton_convolution_27 1.0424 ms 44.5%\n  triton_convolution_33 1.1356 ms 40.8%\n  triton_convolution_29 5.1927 ms 8.9%\nSingleProcess AUTOTUNE benchmarking takes 2.1505 seconds and 0.0039 seconds precompiling\nAUTOTUNE convolution(2000x256x3x3, 256x256x3x3)\n  convolution 0.0973 ms 100.0%\n  triton_convolution_45 0.1751 ms 55.6%\n  triton_convolution_46 0.2191 ms 44.4%\n  triton_convolution_47 0.2253 ms 43.2%\n  triton_convolution_44 0.2273 ms 42.8%\n  triton_convolution_42 0.2284 ms 42.6%\n  triton_convolution_41 0.2683 ms 36.3%\n  triton_convolution_43 0.6410 ms 15.2%\nSingleProcess AUTOTUNE benchmarking takes 1.6950 seconds and 0.0017 seconds precompiling\nAUTOTUNE mm(10x2000, 2000x256)\n  triton_mm_72 0.0143 ms 100.0%\n  triton_mm_68 0.0154 ms 93.3%\n  triton_mm_76 0.0174 ms 82.4%\n  mm 0.0184 ms 77.8%\n  triton_mm_67 0.0195 ms 73.7%\n  triton_mm_80 0.0195 ms 73.7%\n  triton_mm_66 0.0205 ms 70.0%\n  triton_mm_71 0.0215 ms 66.7%\n  triton_mm_78 0.0225 ms 63.6%\n  triton_mm_75 0.0246 ms 58.3%\nSingleProcess AUTOTUNE benchmarking takes 2.0576 seconds and 0.0047 seconds precompiling\nAUTOTUNE mm(2000x10, 10x256)\n  triton_mm_81 0.0082 ms 100.0%\n  triton_mm_82 0.0082 ms 100.0%\n  triton_mm_83 0.0082 ms 100.0%\n  triton_mm_84 0.0082 ms 100.0%\n  triton_mm_85 0.0082 ms 100.0%\n  triton_mm_86 0.0082 ms 100.0%\n  triton_mm_87 0.0082 ms 100.0%\n  triton_mm_88 0.0082 ms 100.0%\n  triton_mm_89 0.0082 ms 100.0%\n  triton_mm_90 0.0082 ms 100.0%\nSingleProcess AUTOTUNE benchmarking takes 1.8662 seconds and 0.0046 seconds precompiling\n",
+  "stdout_tail": "[config] data_dir=/vol/cifar10 trials=1 warmup_trials=1 target_accuracy=0.9400\n[preflight] ok train_batch_size=2000 eval_batch_size=2000 loss=2.3105\n{\"compiled\": true, \"device_name\": \"NVIDIA A100-SXM4-40GB\", \"error\": {\"message\": \"Error: accessing tensor output of CUDAGraphs that has been overwritten by a subsequent run. Stack trace: File \\\"/tmp/airbench_candidate_t2a4f6i6/candidate.py\\\", line 235, in forward\\n    return self.head(x) / x.size(-1). To prevent overwriting, clone the tensor outside of torch.compile() or call torch.compiler.cudagraph_mark_step_begin() before each model invocation.\", \"type\": \"RuntimeError\"}, \"mean_accuracy\": 0.0, \"mean_time_seconds\": 0.0, \"meets_target\": false, \"per_trial\": [], \"std_accuracy\": 0.0, \"std_time_seconds\": 0.0, \"target_accuracy\": 0.94, \"torch_version\": \"2.4.1+cu124\", \"trials\": 1, \"warmup_trials\": 1}\n",
+  "trials": null,
+  "valid": false
+}

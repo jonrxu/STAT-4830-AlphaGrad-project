@@ -1,0 +1,54 @@
+{
+  "accuracy_margin": 0.0008999681472778853,
+  "failure_type": null,
+  "mean_accuracy": 0.9408999681472778,
+  "mean_time_seconds": 2.5750592002471286,
+  "meets_target": true,
+  "message": "mean_accuracy=0.9409 mean_time_seconds=2.5751 meets_target=True",
+  "payload": {
+    "_modal": {
+      "app_name": "airbench-gepa",
+      "data_dir": "/vol/cifar10",
+      "gpu": "A100-40GB",
+      "runtime_seconds": 88.2563407421112
+    },
+    "compiled": true,
+    "device_name": "NVIDIA A100-SXM4-40GB",
+    "mean_accuracy": 0.9408999681472778,
+    "mean_time_seconds": 2.5750592002471286,
+    "meets_target": true,
+    "per_trial": [
+      {
+        "time_seconds": 2.5692050461769105,
+        "tta_val_accuracy": 0.94159996509552
+      },
+      {
+        "time_seconds": 2.5757890223264694,
+        "tta_val_accuracy": 0.9393999576568604
+      },
+      {
+        "time_seconds": 2.580183532238007,
+        "tta_val_accuracy": 0.9416999816894531
+      }
+    ],
+    "std_accuracy": 0.0010614532281381542,
+    "std_time_seconds": 0.004511560650081207,
+    "target_accuracy": 0.94,
+    "torch_version": "2.4.1+cu124",
+    "trials": 3,
+    "warmup_trials": 1
+  },
+  "remote_runtime_seconds": 88.2563407421112,
+  "runtime_seconds": 88.47274398803711,
+  "score": 1000.3883405864626,
+  "scores": {
+    "accuracy_margin": 0.0008999681472778853,
+    "inverse_time": 0.3883405864626452,
+    "meets_target": 1.0
+  },
+  "stderr_tail": "/tmp/airbench_candidate_y9rpogh5/candidate.py:111: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.\n  data = torch.load(data_path, map_location=torch.device(\"cuda\"))\n/tmp/airbench_candidate_y9rpogh5/candidate.py:111: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.\n  data = torch.load(data_path, map_location=torch.device(\"cuda\"))\n",
+  "stdout_tail": "[config] data_dir=/vol/cifar10 trials=3 warmup_trials=1 target_accuracy=0.9400\n[warmup 1/1] time_seconds=71.2707\n[trial 1/3] tta_val_accuracy=0.9416 time_seconds=2.5692\n[trial 2/3] tta_val_accuracy=0.9394 time_seconds=2.5758\n[trial 3/3] tta_val_accuracy=0.9417 time_seconds=2.5802\n{\"mean_accuracy\": 0.9408999681472778, \"std_accuracy\": 0.0010614532281381542, \"mean_time_seconds\": 2.5750592002471286, \"std_time_seconds\": 0.004511560650081207, \"meets_target\": true, \"target_accuracy\": 0.94, \"trials\": 3, \"warmup_trials\": 1, \"per_trial\": [{\"tta_val_accuracy\": 0.94159996509552, \"time_seconds\": 2.5692050461769105}, {\"tta_val_accuracy\": 0.9393999576568604, \"time_seconds\": 2.5757890223264694}, {\"tta_val_accuracy\": 0.9416999816894531, \"time_seconds\": 2.580183532238007}], \"torch_version\": \"2.4.1+cu124\", \"device_name\": \"NVIDIA A100-SXM4-40GB\", \"compiled\": true}\n",
+  "target_accuracy": 0.94,
+  "trials": 3,
+  "valid": true
+}

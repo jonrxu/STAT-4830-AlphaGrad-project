@@ -1,0 +1,12 @@
+Changed:
+- I improved the parked coarse-shortlist path in [src/distance.rs](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/src/distance.rs:1) and [src/db.rs](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/src/db.rs:1) by adding a batched arbitrary-width `u8` subspace scan for the common `<=32`-dim branch and reusing cutoff-aware batch heap updates during coarse rescoring.
+- I added [compare_ann_coarse_shortlist](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/compare_ann_coarse_shortlist:1) and documented it in [.meta_codex/tools/README.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/README.md:1), so future cycles can run paired local flat-vs-coarse A/Bs without hand-comparing noisy runs.
+- I updated [.meta_codex/strategy.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/strategy.md:1), [.meta_codex/research_notes.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/research_notes.md:1), and [.meta_codex/campaign_journal.md](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/campaign_journal.md:1). I also tried a coarse min/max bound filter and removed it after it failed to prune anything.
+
+Current expectation:
+- The official workspace is still valid: `run_correctness_test` passed at `1.0000` recall.
+- The new coarse kernel is directionally better but still not promotable. On a paired 2-run primed local comparison at `14 / 138 / 416`, flat averaged `6385.01 QPS`, `0.9480` recall, while coarse `cluster 32 / 2048` averaged `4880.11 QPS`, `0.9390`.
+- Scanned vectors stayed essentially unchanged at about `12.05k/query`, so I did not spend the exact ANN gate. Score expectation is therefore unchanged: default scored path still roughly low-`10k` to low-`13k`, and the best exact ANN expectation remains mid-`5k`.
+
+Next best move:
+- Stop paying cycles for selector-only coarse tweaks. The next credible ANN step is a stronger shortlist signal that actually cuts scanned vectors, likely cluster-local residual PQ/codebooks or another residual-aware shortlist stage, with [compare_ann_coarse_shortlist](/__modal/volumes/vo-WauxZXgTehLrBgTwgcOh2J/campaign/workspace/.meta_codex/tools/compare_ann_coarse_shortlist:1) used as the local culling gate before any exact validation.

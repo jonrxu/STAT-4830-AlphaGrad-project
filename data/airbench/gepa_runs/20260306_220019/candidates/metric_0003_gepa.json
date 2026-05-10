@@ -1,0 +1,51 @@
+{
+  "accuracy_margin": -0.00030005216598505413,
+  "actual_device_name": "NVIDIA A100-SXM4-40GB",
+  "failure_type": null,
+  "gpu_mismatch_attempts": 0,
+  "mean_accuracy": 0.9396999478340149,
+  "mean_time_seconds": 3.435845932483674,
+  "meets_target": false,
+  "message": "mean_accuracy=0.9397 mean_time_seconds=3.4358 meets_target=False",
+  "payload": {
+    "_modal": {
+      "actual_device_name": "NVIDIA A100-SXM4-40GB",
+      "app_name": "airbench-gepa",
+      "data_dir": "/vol/cifar10",
+      "gpu": "A100-40GB",
+      "requested_gpu": "A100-40GB",
+      "runtime_seconds": 127.0456235408783
+    },
+    "compiled": true,
+    "device_name": "NVIDIA A100-SXM4-40GB",
+    "mean_accuracy": 0.9396999478340149,
+    "mean_time_seconds": 3.435845932483674,
+    "meets_target": false,
+    "per_trial": [
+      {
+        "time_seconds": 3.435845932483674,
+        "tta_val_accuracy": 0.9396999478340149
+      }
+    ],
+    "std_accuracy": 0.0,
+    "std_time_seconds": 0.0,
+    "target_accuracy": 0.94,
+    "torch_version": "2.4.1+cu124",
+    "trials": 1,
+    "warmup_trials": 1
+  },
+  "remote_runtime_seconds": 127.0456235408783,
+  "requested_gpu": "A100-40GB",
+  "runtime_seconds": 127.21303606033325,
+  "score": 0.9396999478340149,
+  "scores": {
+    "accuracy_margin": -0.00030005216598505413,
+    "inverse_time": 0.29104913888764766,
+    "meets_target": 0.0
+  },
+  "stderr_tail": "174 0.0113 ms 81.8%\n  triton_mm_177 0.0113 ms 81.8%\n  triton_mm_179 0.0113 ms 81.8%\n  triton_mm_184 0.0113 ms 81.8%\n  triton_mm_185 0.0113 ms 81.8%\n  triton_mm_187 0.0113 ms 81.8%\nSingleProcess AUTOTUNE benchmarking takes 1.9605 seconds and 0.0059 seconds precompiling\nAUTOTUNE mm(64x576, 576x64)\n  triton_mm_142 0.0133 ms 100.0%\n  mm 0.0143 ms 92.9%\n  triton_mm_145 0.0164 ms 81.2%\n  triton_mm_148 0.0195 ms 68.4%\n  triton_mm_152 0.0195 ms 68.4%\n  triton_mm_153 0.0205 ms 65.0%\n  triton_mm_155 0.0205 ms 65.0%\n  triton_mm_144 0.0215 ms 61.9%\n  triton_mm_149 0.0215 ms 61.9%\n  triton_mm_143 0.0246 ms 54.2%\nSingleProcess AUTOTUNE benchmarking takes 1.7586 seconds and 0.0045 seconds precompiling\nAUTOTUNE addmm(256x576, 256x256, 256x576)\n  addmm 0.0174 ms 100.0%\n  triton_mm_321 0.0174 ms 100.0%\n  triton_mm_323 0.0174 ms 100.0%\n  triton_mm_324 0.0184 ms 94.4%\n  triton_mm_322 0.0195 ms 89.5%\n  triton_mm_327 0.0215 ms 81.0%\n  triton_mm_334 0.0236 ms 73.9%\n  triton_mm_326 0.0256 ms 68.0%\n  triton_mm_325 0.0266 ms 65.4%\n  triton_mm_330 0.0266 ms 65.4%\nSingleProcess AUTOTUNE benchmarking takes 2.2123 seconds and 0.0082 seconds precompiling\nAUTOTUNE mm(256x256, 256x256)\n  mm 0.0113 ms 100.0%\n  triton_mm_302 0.0143 ms 78.6%\n  triton_mm_304 0.0154 ms 73.3%\n  triton_mm_303 0.0164 ms 68.8%\n  triton_mm_308 0.0164 ms 68.8%\n  triton_mm_301 0.0205 ms 55.0%\n  triton_mm_307 0.0215 ms 52.4%\n  triton_mm_315 0.0215 ms 52.4%\n  triton_mm_306 0.0236 ms 47.8%\n  triton_mm_311 0.0236 ms 47.8%\nSingleProcess AUTOTUNE benchmarking takes 2.2417 seconds and 0.0059 seconds precompiling\nAUTOTUNE mm(256x576, 576x256)\n  mm 0.0113 ms 100.0%\n  triton_mm_283 0.0154 ms 73.3%\n  triton_mm_286 0.0174 ms 64.7%\n  triton_mm_289 0.0205 ms 55.0%\n  triton_mm_285 0.0236 ms 47.8%\n  triton_mm_284 0.0246 ms 45.8%\n  triton_mm_288 0.0256 ms 44.0%\n  triton_mm_282 0.0266 ms 42.3%\n  triton_mm_296 0.0287 ms 39.3%\n  triton_mm_290 0.0297 ms 37.9%\nSingleProcess AUTOTUNE benchmarking takes 2.4215 seconds and 0.0036 seconds precompiling\n",
+  "stdout_tail": "[config] data_dir=/vol/cifar10 trials=1 warmup_trials=1 target_accuracy=0.9400\n[preflight] ok train_batch_size=512 eval_batch_size=512 loss=2.3164\n[warmup 1/1] time_seconds=113.1528\n[trial 1/1] tta_val_accuracy=0.9397 time_seconds=3.4358\n{\"mean_accuracy\": 0.9396999478340149, \"std_accuracy\": 0.0, \"mean_time_seconds\": 3.435845932483674, \"std_time_seconds\": 0.0, \"meets_target\": false, \"target_accuracy\": 0.94, \"trials\": 1, \"warmup_trials\": 1, \"per_trial\": [{\"tta_val_accuracy\": 0.9396999478340149, \"time_seconds\": 3.435845932483674}], \"torch_version\": \"2.4.1+cu124\", \"device_name\": \"NVIDIA A100-SXM4-40GB\", \"compiled\": true}\n",
+  "target_accuracy": 0.94,
+  "trials": 1,
+  "valid": true
+}

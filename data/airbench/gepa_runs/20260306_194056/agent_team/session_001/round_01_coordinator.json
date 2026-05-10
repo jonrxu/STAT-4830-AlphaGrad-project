@@ -1,0 +1,16 @@
+{
+  "integration_notes": "The current candidate already meets target with very little accuracy headroom, so accuracy safety dominates. Focus edits inside train/eval timing boundaries rather than broad recipe changes. Any optimization that alters augmentation strength, schedule length, EMA behavior, or architecture capacity should be treated as high risk unless offset by a validated accuracy buffer. Keep warmup behavior aligned with compilation needs so measured trials stay fast.",
+  "performance_focus_sections": [
+    "train_eval_code",
+    "data_code",
+    "model_code"
+  ],
+  "performance_task": "Prioritize low-risk speedups in the measured path: reduce evaluation/TTA overhead, remove unnecessary synchronizations, tighten dataloader/device transfer behavior, and inspect whether model forward or augmentation kernels can be fused/simplified without changing training dynamics materially. Only consider model changes if they are compile-friendly and have strong evidence of equal-or-better accuracy at the same epoch budget.",
+  "reliability_focus_sections": [
+    "train_eval_code",
+    "cli_code",
+    "setup_code"
+  ],
+  "reliability_task": "Harden the run contract and numerical stability: keep preflight cheap but representative, preserve dtype consistency for compiled mixed-precision convolutions and normalization, ensure JSON final line always emits even on edge paths, and remove or safely handle any torch.load usage that triggers warnings or could introduce runtime fragility.",
+  "round_goal": "Trim measured trial time below the current ~2.59s while preserving the narrow but sufficient 94.02% TTA accuracy margin; avoid risky accuracy regressions."
+}

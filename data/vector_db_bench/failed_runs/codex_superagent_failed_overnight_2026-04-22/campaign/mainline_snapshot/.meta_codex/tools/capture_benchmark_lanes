@@ -1,0 +1,340 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import random
+import socket
+import struct
+import subprocess
+import tempfile
+import threading
+import time
+from pathlib import Path
+
+
+BENCHMARK_BIN = Path("/opt/vector-db-bench/benchmark/target/release/vector-db-benchmark")
+DATA_DIR = Path("/opt/vdb-data")
+MAX_RESULTS = 10
+
+
+def float_bits(value: float) -> int:
+    return struct.unpack("<I", struct.pack("<f", value))[0]
+
+
+def query_key(vector: list[float]) -> tuple[int, ...]:
+    return tuple(float_bits(value) for value in vector)
+
+
+def build_query_id_map(query_path: Path) -> dict[tuple[int, ...], int]:
+    queries = json.loads(query_path.read_text(encoding="utf-8"))
+    mapping: dict[tuple[int, ...], int] = {}
+    for query_id, query in enumerate(queries):
+        mapping[query_key(query["vector"])] = query_id
+    return mapping
+
+
+def load_queries(query_path: Path) -> list[dict]:
+    return json.loads(query_path.read_text(encoding="utf-8"))
+
+
+def parse_one_request(buffer: bytearray):
+    header_end = buffer.find(b"\r\n\r\n")
+    if header_end < 0:
+        return None
+
+    headers = bytes(buffer[:header_end])
+    body_start = header_end + 4
+    content_length = None
+    for line in headers.split(b"\r\n")[1:]:
+        name, _, value = line.partition(b":")
+        if name.lower() == b"content-length":
+            content_length = int(value.strip() or b"0")
+            break
+
+    if content_length is None:
+        raise RuntimeError("missing content-length")
+
+    body_end = body_start + content_length
+    if len(buffer) < body_end:
+        return None
+
+    raw = bytes(buffer[:body_end])
+    del buffer[:body_end]
+    request_line = headers.split(b"\r\n", 1)[0].decode("ascii", errors="replace")
+    return {
+        "request_line": request_line,
+        "body": raw[body_start:body_end],
+    }
+
+
+def build_search_response() -> bytes:
+    body = b'{"results":[{"id":0,"distance":0},{"id":1,"distance":1},{"id":2,"distance":2},{"id":3,"distance":3},{"id":4,"distance":4},{"id":5,"distance":5},{"id":6,"distance":6},{"id":7,"distance":7},{"id":8,"distance":8},{"id":9,"distance":9}]}'
+    return (
+        b"HTTP/1.1 200 OK\r\n"
+        + f"Content-Length: {len(body)}\r\n\r\n".encode("ascii")
+        + body
+    )
+
+
+def build_insert_response(inserted: int) -> bytes:
+    body = json.dumps({"status": "ok", "inserted": inserted}, separators=(",", ":")).encode(
+        "utf-8"
+    )
+    return (
+        b"HTTP/1.1 200 OK\r\n"
+        + f"Content-Length: {len(body)}\r\n\r\n".encode("ascii")
+        + body
+    )
+
+
+def load_bulk_inserted(body: bytes) -> int:
+    payload = json.loads(body)
+    vectors = payload.get("vectors", [])
+    if not isinstance(vectors, list):
+        return 0
+    return len(vectors)
+
+
+def handle_connection(
+    conn: socket.socket,
+    addr: tuple[str, int],
+    connection_id: int,
+    captured: list[dict],
+    lock: threading.Lock,
+    stop: threading.Event,
+    query_ids: dict[tuple[int, ...], int],
+) -> None:
+    buffer = bytearray()
+    connection_seq = 0
+    try:
+        while not stop.is_set():
+            chunk = conn.recv(65536)
+            if not chunk:
+                return
+            buffer.extend(chunk)
+            while True:
+                parsed = parse_one_request(buffer)
+                if parsed is None:
+                    break
+
+                request_line = parsed["request_line"]
+                path = request_line.split(" ")[1]
+                captured_record = {
+                    "connection_id": connection_id,
+                    "client_addr": f"{addr[0]}:{addr[1]}",
+                    "connection_seq": connection_seq,
+                    "path": path,
+                    "request_line": request_line,
+                    "received_at": time.time(),
+                }
+
+                if path == "/search":
+                    payload = json.loads(parsed["body"])
+                    query_vector = payload.get("vector", [])
+                    query_id = query_ids.get(query_key(query_vector))
+                    captured_record["query_id"] = query_id
+                    conn.sendall(build_search_response())
+                elif path == "/bulk_insert":
+                    inserted = load_bulk_inserted(parsed["body"])
+                    captured_record["inserted"] = inserted
+                    conn.sendall(build_insert_response(inserted))
+                else:
+                    body = b'{"status":"ok"}'
+                    conn.sendall(
+                        b"HTTP/1.1 200 OK\r\n"
+                        + f"Content-Length: {len(body)}\r\n\r\n".encode("ascii")
+                        + body
+                    )
+
+                with lock:
+                    captured.append(captured_record)
+                connection_seq += 1
+    finally:
+        conn.close()
+
+
+def run_server(
+    port: int,
+    captured: list[dict],
+    query_ids: dict[tuple[int, ...], int],
+    stop: threading.Event,
+) -> threading.Thread:
+    lock = threading.Lock()
+
+    def worker() -> None:
+        next_connection_id = 1
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
+            server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            server.bind(("127.0.0.1", port))
+            server.listen()
+            server.settimeout(0.2)
+            while not stop.is_set():
+                try:
+                    conn, addr = server.accept()
+                except TimeoutError:
+                    continue
+                connection_id = next_connection_id
+                next_connection_id += 1
+                thread = threading.Thread(
+                    target=handle_connection,
+                    args=(conn, addr, connection_id, captured, lock, stop, query_ids),
+                    daemon=True,
+                )
+                thread.start()
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+    return thread
+
+
+def build_expected_measured_order(queries: int, seed: int) -> list[int]:
+    order = list(range(queries))
+    random.Random(seed).shuffle(order)
+    return order
+
+
+def summarize_searches(
+    captured: list[dict],
+    warmup: int,
+    queries: int,
+    seed: int,
+) -> dict:
+    searches = [record for record in captured if record["path"] == "/search"]
+    warmup_records = searches[:warmup]
+    measured_records = searches[warmup : warmup + queries]
+    expected = build_expected_measured_order(queries, seed)
+    actual = [record.get("query_id") for record in measured_records]
+
+    per_connection: dict[int, list[int | None]] = {}
+    for record in measured_records:
+        per_connection.setdefault(record["connection_id"], []).append(record.get("query_id"))
+
+    first_mismatch = None
+    for idx, (actual_id, expected_id) in enumerate(zip(actual, expected)):
+        if actual_id != expected_id:
+            first_mismatch = {
+                "index": idx,
+                "actual": actual_id,
+                "expected": expected_id,
+            }
+            break
+
+    return {
+        "warmup_searches": [
+            {
+                "connection_id": record["connection_id"],
+                "query_id": record.get("query_id"),
+            }
+            for record in warmup_records
+        ],
+        "measured_total": len(measured_records),
+        "global_order_matches_expected": actual == expected,
+        "first_mismatch": first_mismatch,
+        "expected_prefix": expected[:32],
+        "actual_prefix": actual[:32],
+        "per_connection": {
+            str(connection_id): query_ids[:32]
+            for connection_id, query_ids in sorted(per_connection.items())
+        },
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--warmup", type=int, default=100)
+    parser.add_argument("--queries", type=int, default=200)
+    parser.add_argument("--concurrency", type=int, default=4)
+    parser.add_argument("--batch-size", type=int, default=1000)
+    parser.add_argument("--seed", type=int, default=42)
+    args = parser.parse_args()
+
+    if not BENCHMARK_BIN.is_file():
+        raise SystemExit(f"benchmark binary not found: {BENCHMARK_BIN}")
+
+    query_path = DATA_DIR / "query_vectors.json"
+    base_path = DATA_DIR / "base_vectors.json"
+    truth_path = DATA_DIR / "ground_truth.json"
+    query_ids = build_query_id_map(query_path)
+    all_queries = load_queries(query_path)
+    limited_queries = all_queries[: args.queries]
+    temp_ground_truth = [
+        {"query_id": query_id, "neighbors": list(range(MAX_RESULTS))}
+        for query_id in range(len(limited_queries))
+    ]
+    temp_base_vectors = [{"id": 0, "vector": limited_queries[0]["vector"]}] if limited_queries else []
+
+    with tempfile.TemporaryDirectory(prefix="capture_benchmark_lanes_") as tmpdir:
+        tmpdir_path = Path(tmpdir)
+        temp_base_path = tmpdir_path / "base_vectors.json"
+        temp_query_path = tmpdir_path / "query_vectors.json"
+        temp_truth_path = tmpdir_path / "ground_truth.json"
+        temp_base_path.write_text(json.dumps(temp_base_vectors), encoding="utf-8")
+        temp_query_path.write_text(json.dumps(limited_queries), encoding="utf-8")
+        temp_truth_path.write_text(json.dumps(temp_ground_truth), encoding="utf-8")
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind(("127.0.0.1", 0))
+            port = sock.getsockname()[1]
+
+        captured: list[dict] = []
+        stop = threading.Event()
+        server_thread = run_server(port, captured, query_ids, stop)
+        time.sleep(0.1)
+
+        cmd = [
+            str(BENCHMARK_BIN),
+            "--server-url",
+            f"http://127.0.0.1:{port}",
+            "--concurrency",
+            str(args.concurrency),
+            "--warmup",
+            str(args.warmup),
+            "--batch-size",
+            str(args.batch_size),
+            "--max-queries",
+            str(args.queries),
+            "--seed",
+            str(args.seed),
+            "--base-vectors",
+            str(temp_base_path),
+            "--query-vectors",
+            str(temp_query_path),
+            "--ground-truth",
+            str(temp_truth_path),
+            "--recall-threshold",
+            "0.0",
+        ]
+
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=600,
+            check=False,
+        )
+        stop.set()
+        server_thread.join(timeout=1)
+
+        payload = {
+            "type": "CaptureBenchmarkLanes",
+            "returncode": proc.returncode,
+            "stderr_tail": proc.stderr[-4000:] if proc.stderr else "",
+            "summary": summarize_searches(
+                captured=captured,
+                warmup=min(args.warmup, args.queries),
+                queries=args.queries,
+                seed=args.seed,
+            ),
+            "captured_request_count": len(captured),
+            "captured_search_count": sum(1 for record in captured if record["path"] == "/search"),
+            "captured_connections": sorted(
+                {record["connection_id"] for record in captured if record["path"] == "/search"}
+            ),
+        }
+    print(json.dumps(payload, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
